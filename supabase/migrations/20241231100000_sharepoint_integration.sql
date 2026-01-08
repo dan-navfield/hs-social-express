@@ -106,6 +106,7 @@ ALTER TABLE document_chunks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sync_jobs ENABLE ROW LEVEL SECURITY;
 
 -- Users can view/manage their workspace's SharePoint connections
+DROP POLICY IF EXISTS "Users can manage sharepoint_connections in their spaces" ON sharepoint_connections;
 CREATE POLICY "Users can manage sharepoint_connections in their spaces" ON sharepoint_connections
     FOR ALL USING (
         EXISTS (
@@ -116,6 +117,7 @@ CREATE POLICY "Users can manage sharepoint_connections in their spaces" ON share
         )
     );
 
+DROP POLICY IF EXISTS "Users can manage sharepoint_sources in their spaces" ON sharepoint_sources;
 CREATE POLICY "Users can manage sharepoint_sources in their spaces" ON sharepoint_sources
     FOR ALL USING (
         EXISTS (
@@ -126,6 +128,7 @@ CREATE POLICY "Users can manage sharepoint_sources in their spaces" ON sharepoin
         )
     );
 
+DROP POLICY IF EXISTS "Users can view document_chunks in their spaces" ON document_chunks;
 CREATE POLICY "Users can view document_chunks in their spaces" ON document_chunks
     FOR SELECT USING (
         EXISTS (
@@ -135,6 +138,7 @@ CREATE POLICY "Users can view document_chunks in their spaces" ON document_chunk
         )
     );
 
+DROP POLICY IF EXISTS "Users can view sync_jobs in their spaces" ON sync_jobs;
 CREATE POLICY "Users can view sync_jobs in their spaces" ON sync_jobs
     FOR SELECT USING (
         EXISTS (

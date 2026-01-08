@@ -17,17 +17,21 @@ VALUES ('brand-assets', 'brand-assets', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- Allow authenticated users to upload to their space folder
+DROP POLICY IF EXISTS "Users can upload brand assets" ON storage.objects;
 CREATE POLICY "Users can upload brand assets" ON storage.objects
 FOR INSERT TO authenticated
 WITH CHECK (bucket_id = 'brand-assets');
 
 -- Allow public read access for logos
+DROP POLICY IF EXISTS "Public read access for brand assets" ON storage.objects;
 CREATE POLICY "Public read access for brand assets" ON storage.objects
 FOR SELECT TO public
 USING (bucket_id = 'brand-assets');
 
 -- Allow authenticated users to update/delete their uploads
+DROP POLICY IF EXISTS "Users can manage their brand assets" ON storage.objects;
 CREATE POLICY "Users can manage their brand assets" ON storage.objects
 FOR ALL TO authenticated
 USING (bucket_id = 'brand-assets')
 WITH CHECK (bucket_id = 'brand-assets');
+

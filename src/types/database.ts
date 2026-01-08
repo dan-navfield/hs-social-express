@@ -465,6 +465,268 @@ export interface Database {
                     updated_at?: string
                 }
             }
+            // BuyICT Snoop Module Tables
+            buyict_integrations: {
+                Row: {
+                    id: string
+                    space_id: string
+                    connection_method: 'upload' | 'api' | 'browser_sync'
+                    connection_status: 'disconnected' | 'connected' | 'syncing' | 'error'
+                    encrypted_credentials: string | null
+                    last_sync_at: string | null
+                    last_sync_error: string | null
+                    config: Json
+                    created_at: string
+                    updated_at: string
+                }
+                Insert: {
+                    id?: string
+                    space_id: string
+                    connection_method: 'upload' | 'api' | 'browser_sync'
+                    connection_status?: 'disconnected' | 'connected' | 'syncing' | 'error'
+                    encrypted_credentials?: string | null
+                    last_sync_at?: string | null
+                    last_sync_error?: string | null
+                    config?: Json
+                    created_at?: string
+                    updated_at?: string
+                }
+                Update: {
+                    id?: string
+                    space_id?: string
+                    connection_method?: 'upload' | 'api' | 'browser_sync'
+                    connection_status?: 'disconnected' | 'connected' | 'syncing' | 'error'
+                    encrypted_credentials?: string | null
+                    last_sync_at?: string | null
+                    last_sync_error?: string | null
+                    config?: Json
+                    created_at?: string
+                    updated_at?: string
+                }
+            }
+            buyict_sync_jobs: {
+                Row: {
+                    id: string
+                    space_id: string
+                    integration_id: string
+                    status: 'pending' | 'running' | 'completed' | 'failed'
+                    sync_type: 'full' | 'incremental' | 'upload'
+                    stats: Json
+                    error: string | null
+                    started_at: string | null
+                    completed_at: string | null
+                    created_by: string
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    space_id: string
+                    integration_id: string
+                    status?: 'pending' | 'running' | 'completed' | 'failed'
+                    sync_type: 'full' | 'incremental' | 'upload'
+                    stats?: Json
+                    error?: string | null
+                    started_at?: string | null
+                    completed_at?: string | null
+                    created_by: string
+                    created_at?: string
+                }
+                Update: {
+                    id?: string
+                    space_id?: string
+                    integration_id?: string
+                    status?: 'pending' | 'running' | 'completed' | 'failed'
+                    sync_type?: 'full' | 'incremental' | 'upload'
+                    stats?: Json
+                    error?: string | null
+                    started_at?: string | null
+                    completed_at?: string | null
+                    created_by?: string
+                    created_at?: string
+                }
+            }
+            buyict_opportunities: {
+                Row: {
+                    id: string
+                    space_id: string
+                    buyict_reference: string
+                    buyict_url: string | null
+                    title: string
+                    buyer_entity_raw: string | null
+                    category: string | null
+                    description: string | null
+                    publish_date: string | null
+                    closing_date: string | null
+                    opportunity_status: string | null
+                    contact_text_raw: string | null
+                    attachments: Json
+                    source_hash: string | null
+                    last_synced_at: string
+                    sync_job_id: string | null
+                    created_at: string
+                    updated_at: string
+                }
+                Insert: {
+                    id?: string
+                    space_id: string
+                    buyict_reference: string
+                    buyict_url?: string | null
+                    title: string
+                    buyer_entity_raw?: string | null
+                    category?: string | null
+                    description?: string | null
+                    publish_date?: string | null
+                    closing_date?: string | null
+                    opportunity_status?: string | null
+                    contact_text_raw?: string | null
+                    attachments?: Json
+                    source_hash?: string | null
+                    last_synced_at?: string
+                    sync_job_id?: string | null
+                    created_at?: string
+                    updated_at?: string
+                }
+                Update: {
+                    id?: string
+                    space_id?: string
+                    buyict_reference?: string
+                    buyict_url?: string | null
+                    title?: string
+                    buyer_entity_raw?: string | null
+                    category?: string | null
+                    description?: string | null
+                    publish_date?: string | null
+                    closing_date?: string | null
+                    opportunity_status?: string | null
+                    contact_text_raw?: string | null
+                    attachments?: Json
+                    source_hash?: string | null
+                    last_synced_at?: string
+                    sync_job_id?: string | null
+                    created_at?: string
+                    updated_at?: string
+                }
+            }
+            buyict_department_mappings: {
+                Row: {
+                    id: string
+                    space_id: string
+                    source_pattern: string
+                    match_type: 'exact' | 'contains' | 'regex' | 'fuzzy'
+                    canonical_department: string
+                    canonical_agency: string | null
+                    confidence: number
+                    is_approved: boolean
+                    is_auto_generated: boolean
+                    created_by: string | null
+                    created_at: string
+                    updated_at: string
+                }
+                Insert: {
+                    id?: string
+                    space_id: string
+                    source_pattern: string
+                    match_type: 'exact' | 'contains' | 'regex' | 'fuzzy'
+                    canonical_department: string
+                    canonical_agency?: string | null
+                    confidence?: number
+                    is_approved?: boolean
+                    is_auto_generated?: boolean
+                    created_by?: string | null
+                    created_at?: string
+                    updated_at?: string
+                }
+                Update: {
+                    id?: string
+                    space_id?: string
+                    source_pattern?: string
+                    match_type?: 'exact' | 'contains' | 'regex' | 'fuzzy'
+                    canonical_department?: string
+                    canonical_agency?: string | null
+                    confidence?: number
+                    is_approved?: boolean
+                    is_auto_generated?: boolean
+                    created_by?: string | null
+                    created_at?: string
+                    updated_at?: string
+                }
+            }
+            buyict_contacts: {
+                Row: {
+                    id: string
+                    space_id: string
+                    email: string
+                    name: string | null
+                    phone: string | null
+                    linked_departments: Json
+                    opportunity_count: number
+                    first_seen_at: string
+                    last_seen_at: string
+                    created_at: string
+                    updated_at: string
+                }
+                Insert: {
+                    id?: string
+                    space_id: string
+                    email: string
+                    name?: string | null
+                    phone?: string | null
+                    linked_departments?: Json
+                    opportunity_count?: number
+                    first_seen_at?: string
+                    last_seen_at?: string
+                    created_at?: string
+                    updated_at?: string
+                }
+                Update: {
+                    id?: string
+                    space_id?: string
+                    email?: string
+                    name?: string | null
+                    phone?: string | null
+                    linked_departments?: Json
+                    opportunity_count?: number
+                    first_seen_at?: string
+                    last_seen_at?: string
+                    created_at?: string
+                    updated_at?: string
+                }
+            }
+            buyict_opportunity_contacts: {
+                Row: {
+                    id: string
+                    opportunity_id: string
+                    contact_id: string
+                    source_type: 'structured_field' | 'page_text' | 'attachment'
+                    source_detail: string | null
+                    extraction_confidence: number
+                    role_label: string | null
+                    last_seen_at: string
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    opportunity_id: string
+                    contact_id: string
+                    source_type: 'structured_field' | 'page_text' | 'attachment'
+                    source_detail?: string | null
+                    extraction_confidence?: number
+                    role_label?: string | null
+                    last_seen_at?: string
+                    created_at?: string
+                }
+                Update: {
+                    id?: string
+                    opportunity_id?: string
+                    contact_id?: string
+                    source_type?: 'structured_field' | 'page_text' | 'attachment'
+                    source_detail?: string | null
+                    extraction_confidence?: number
+                    role_label?: string | null
+                    last_seen_at?: string
+                    created_at?: string
+                }
+            }
         }
         Views: {}
         Functions: {}

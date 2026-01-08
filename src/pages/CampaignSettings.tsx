@@ -616,16 +616,23 @@ export function CampaignSettings() {
     // Change status for a single post
     const handleChangePostStatus = async (postId: string, newStatus: PostStatus) => {
         try {
-            await supabase
+            const { error } = await supabase
                 .from('posts')
                 .update({ status: newStatus, updated_at: new Date().toISOString() })
                 .eq('id', postId)
+
+            if (error) {
+                console.error('Failed to change status:', error)
+                alert(`Failed to update status: ${error.message}`)
+                return
+            }
 
             // Update local state
             setPosts(prev => prev.map(p => p.id === postId ? { ...p, status: newStatus } : p))
             setStatusDropdownPostId(null)
         } catch (err) {
             console.error('Failed to change status:', err)
+            alert('Failed to update status')
         }
     }
 
@@ -636,10 +643,16 @@ export function CampaignSettings() {
         setShowBulkStatusModal(false)
 
         try {
-            await supabase
+            const { error } = await supabase
                 .from('posts')
                 .update({ status: selectedBulkStatus, updated_at: new Date().toISOString() })
                 .in('id', Array.from(selectedPostIds))
+
+            if (error) {
+                console.error('Failed to bulk change status:', error)
+                alert(`Failed to update status: ${error.message}`)
+                return
+            }
 
             // Update local state
             setPosts(prev => prev.map(p =>
@@ -648,6 +661,7 @@ export function CampaignSettings() {
             setSelectedPostIds(new Set())
         } catch (err) {
             console.error('Failed to bulk change status:', err)
+            alert('Failed to update status')
         }
     }
 
@@ -2001,8 +2015,8 @@ export function CampaignSettings() {
                                         key={status.value}
                                         onClick={() => setSelectedBulkStatus(status.value)}
                                         className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-all ${selectedBulkStatus === status.value
-                                                ? 'border-indigo-500 bg-indigo-50'
-                                                : 'border-[var(--color-gray-200)] hover:border-indigo-300'
+                                            ? 'border-indigo-500 bg-indigo-50'
+                                            : 'border-[var(--color-gray-200)] hover:border-indigo-300'
                                             }`}
                                     >
                                         <span className={`w-4 h-4 rounded-full ${status.color.split(' ')[0]}`} />

@@ -6,6 +6,13 @@ import { useSpaceStore } from '@/stores/spaceStore'
 import { Layout } from '@/components/layout'
 import { Dashboard, Login, Posts, PromptStudio, BrandSettings, BrandStudio, Campaigns } from '@/pages'
 import { CampaignSettings } from '@/pages/CampaignSettings'
+import {
+  BuyICTDashboard,
+  Opportunities as BuyICTOpportunities,
+  Contacts as BuyICTContacts,
+  DepartmentMappings as BuyICTDepartmentMappings,
+  Settings as BuyICTSettings
+} from '@/pages/buyict'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuthStore()
@@ -151,6 +158,13 @@ export default function App() {
         <Route path="/prompts" element={<ProtectedRoute><PromptStudio /></ProtectedRoute>} />
         <Route path="/brand-studio" element={<ProtectedRoute><BrandStudio /></ProtectedRoute>} />
         <Route path="/brand" element={<ProtectedRoute><BrandSettings /></ProtectedRoute>} />
+
+        {/* BuyICT Snoop Routes */}
+        <Route path="/buyict" element={<ProtectedRoute><BuyICTDashboard /></ProtectedRoute>} />
+        <Route path="/buyict/opportunities" element={<ProtectedRoute><BuyICTOpportunities /></ProtectedRoute>} />
+        <Route path="/buyict/contacts" element={<ProtectedRoute><BuyICTContacts /></ProtectedRoute>} />
+        <Route path="/buyict/departments" element={<ProtectedRoute><BuyICTDepartmentMappings /></ProtectedRoute>} />
+        <Route path="/buyict/settings" element={<ProtectedRoute><BuyICTSettings /></ProtectedRoute>} />
       </Routes>
     </BrowserRouter>
   )

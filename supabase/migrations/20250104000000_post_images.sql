@@ -37,11 +37,13 @@ CREATE INDEX IF NOT EXISTS idx_post_images_generation_status ON post_images(gene
 ALTER TABLE post_images ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for post_images
+DROP POLICY IF EXISTS "Users can view post images in their spaces" ON post_images;
 CREATE POLICY "Users can view post images in their spaces" ON post_images
     FOR SELECT USING (
         space_id IN (SELECT space_id FROM space_members WHERE user_id = auth.uid())
     );
 
+DROP POLICY IF EXISTS "Editors and owners can manage post images" ON post_images;
 CREATE POLICY "Editors and owners can manage post images" ON post_images
     FOR ALL USING (
         space_id IN (SELECT space_id FROM space_members WHERE user_id = auth.uid() AND role IN ('owner', 'editor'))

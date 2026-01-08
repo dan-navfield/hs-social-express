@@ -44,6 +44,7 @@ ADD COLUMN IF NOT EXISTS discovery_session_id UUID;
 -- RLS for brand_profile
 ALTER TABLE brand_profile ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view brand_profile in their spaces" ON brand_profile;
 CREATE POLICY "Users can view brand_profile in their spaces" ON brand_profile
     FOR SELECT USING (
         EXISTS (
@@ -53,6 +54,7 @@ CREATE POLICY "Users can view brand_profile in their spaces" ON brand_profile
         )
     );
 
+DROP POLICY IF EXISTS "Users can manage brand_profile in their spaces" ON brand_profile;
 CREATE POLICY "Users can manage brand_profile in their spaces" ON brand_profile
     FOR ALL USING (
         EXISTS (

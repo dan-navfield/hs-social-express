@@ -95,13 +95,27 @@ ALTER TABLE posts
   ADD COLUMN IF NOT EXISTS hubspot_meta JSONB;
 
 -- 9. Update posts status constraint (drop old, add new)
+-- Include all statuses that may exist from later migrations for compatibility
 ALTER TABLE posts DROP CONSTRAINT IF EXISTS posts_status_check;
 ALTER TABLE posts ADD CONSTRAINT posts_status_check 
-  CHECK (status IN ('draft', 'selected_to_publish', 'sent_to_hubspot', 'failed', 'generating_text', 'generating_image'));
+  CHECK (status IN (
+    'draft', 
+    'ready_to_publish', 
+    'scheduled', 
+    'published', 
+    'selected_to_publish', 
+    'sent_to_hubspot', 
+    'failed', 
+    'generating_text', 
+    'generating_image'
+  ));
 
--- 10. Add image_status and overlay_status constraints
+-- 10. Add image_status and overlay_status constraints (drop first for idempotency)
+-- Include all statuses from later migrations for compatibility
+ALTER TABLE posts DROP CONSTRAINT IF EXISTS posts_image_status_check;
 ALTER TABLE posts ADD CONSTRAINT posts_image_status_check 
-  CHECK (image_status IN ('none', 'generating', 'ready', 'failed'));
+  CHECK (image_status IN ('no_image', 'none', 'prompt_ready', 'generating', 'images_available', 'ready', 'failed'));
+ALTER TABLE posts DROP CONSTRAINT IF EXISTS posts_overlay_status_check;
 ALTER TABLE posts ADD CONSTRAINT posts_overlay_status_check 
   CHECK (overlay_status IN ('none', 'compositing', 'ready', 'failed'));
 
@@ -124,30 +138,40 @@ ALTER TABLE campaigns ENABLE ROW LEVEL SECURITY;
 ALTER TABLE hubspot_connections ENABLE ROW LEVEL SECURITY;
 
 -- 13. RLS Policies for new tables (using space membership pattern)
+-- Using DROP IF EXISTS for idempotency
+DROP POLICY IF EXISTS "Users can view brand_context_cache in their spaces" ON brand_context_cache;
 CREATE POLICY "Users can view brand_context_cache in their spaces" ON brand_context_cache
   FOR SELECT USING (space_id IN (SELECT space_id FROM space_members WHERE user_id = auth.uid()));
 
+DROP POLICY IF EXISTS "Editors can manage brand_context_cache" ON brand_context_cache;
 CREATE POLICY "Editors can manage brand_context_cache" ON brand_context_cache
   FOR ALL USING (space_id IN (SELECT space_id FROM space_members WHERE user_id = auth.uid() AND role IN ('owner', 'editor')));
 
+DROP POLICY IF EXISTS "Users can view brand_sources in their spaces" ON brand_sources;
 CREATE POLICY "Users can view brand_sources in their spaces" ON brand_sources
   FOR SELECT USING (space_id IN (SELECT space_id FROM space_members WHERE user_id = auth.uid()));
 
+DROP POLICY IF EXISTS "Editors can manage brand_sources" ON brand_sources;
 CREATE POLICY "Editors can manage brand_sources" ON brand_sources
   FOR ALL USING (space_id IN (SELECT space_id FROM space_members WHERE user_id = auth.uid() AND role IN ('owner', 'editor')));
 
+DROP POLICY IF EXISTS "Users can view brand_manual_profile in their spaces" ON brand_manual_profile;
 CREATE POLICY "Users can view brand_manual_profile in their spaces" ON brand_manual_profile
   FOR SELECT USING (space_id IN (SELECT space_id FROM space_members WHERE user_id = auth.uid()));
 
+DROP POLICY IF EXISTS "Editors can manage brand_manual_profile" ON brand_manual_profile;
 CREATE POLICY "Editors can manage brand_manual_profile" ON brand_manual_profile
   FOR ALL USING (space_id IN (SELECT space_id FROM space_members WHERE user_id = auth.uid() AND role IN ('owner', 'editor')));
 
+DROP POLICY IF EXISTS "Users can view source_documents in their spaces" ON source_documents;
 CREATE POLICY "Users can view source_documents in their spaces" ON source_documents
   FOR SELECT USING (space_id IN (SELECT space_id FROM space_members WHERE user_id = auth.uid()));
 
+DROP POLICY IF EXISTS "Editors can manage source_documents" ON source_documents;
 CREATE POLICY "Editors can manage source_documents" ON source_documents
   FOR ALL USING (space_id IN (SELECT space_id FROM space_members WHERE user_id = auth.uid() AND role IN ('owner', 'editor')));
 
+DROP POLICY IF EXISTS "Users can view source_chunks via documents" ON source_chunks;
 CREATE POLICY "Users can view source_chunks via documents" ON source_chunks
   FOR SELECT USING (document_id IN (
     SELECT id FROM source_documents WHERE space_id IN (
@@ -155,6 +179,7 @@ CREATE POLICY "Users can view source_chunks via documents" ON source_chunks
     )
   ));
 
+DROP POLICY IF EXISTS "Editors can manage source_chunks" ON source_chunks;
 CREATE POLICY "Editors can manage source_chunks" ON source_chunks
   FOR ALL USING (document_id IN (
     SELECT id FROM source_documents WHERE space_id IN (
@@ -162,14 +187,19 @@ CREATE POLICY "Editors can manage source_chunks" ON source_chunks
     )
   ));
 
+DROP POLICY IF EXISTS "Users can view campaigns in their spaces" ON campaigns;
 CREATE POLICY "Users can view campaigns in their spaces" ON campaigns
   FOR SELECT USING (space_id IN (SELECT space_id FROM space_members WHERE user_id = auth.uid()));
 
+DROP POLICY IF EXISTS "Editors can manage campaigns" ON campaigns;
 CREATE POLICY "Editors can manage campaigns" ON campaigns
   FOR ALL USING (space_id IN (SELECT space_id FROM space_members WHERE user_id = auth.uid() AND role IN ('owner', 'editor')));
 
+DROP POLICY IF EXISTS "Users can view hubspot_connections in their spaces" ON hubspot_connections;
 CREATE POLICY "Users can view hubspot_connections in their spaces" ON hubspot_connections
   FOR SELECT USING (space_id IN (SELECT space_id FROM space_members WHERE user_id = auth.uid()));
 
+DROP POLICY IF EXISTS "Owners can manage hubspot_connections" ON hubspot_connections;
 CREATE POLICY "Owners can manage hubspot_connections" ON hubspot_connections
   FOR ALL USING (space_id IN (SELECT space_id FROM space_members WHERE user_id = auth.uid() AND role = 'owner'));
+

@@ -19,6 +19,7 @@ CREATE POLICY "Authenticated users full access to generated-images" ON storage.o
     WITH CHECK (bucket_id = 'generated-images');
 
 -- Also allow public read access for generated-images
+DROP POLICY IF EXISTS "Public read access to generated-images" ON storage.objects;
 CREATE POLICY "Public read access to generated-images" ON storage.objects
     FOR SELECT
     TO public
@@ -32,7 +33,9 @@ CREATE POLICY "Authenticated users full access to brand-assets" ON storage.objec
     USING (bucket_id = 'brand-assets')
     WITH CHECK (bucket_id = 'brand-assets');
 
+DROP POLICY IF EXISTS "Public read access to brand-assets" ON storage.objects;
 CREATE POLICY "Public read access to brand-assets" ON storage.objects
     FOR SELECT
     TO public
     USING (bucket_id = 'brand-assets');
+
