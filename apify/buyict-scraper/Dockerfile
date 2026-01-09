@@ -4,8 +4,11 @@ FROM apify/actor-node-playwright-chrome:20
 # Copy package files
 COPY package*.json ./
 
-# Install all dependencies
-RUN npm install
+# Install all dependencies including dev (explicit flag)
+RUN npm install --include=dev
+
+# Verify TypeScript is installed
+RUN ls -la node_modules/.bin/ | head -20
 
 # Copy TypeScript config and source
 COPY tsconfig.json ./
