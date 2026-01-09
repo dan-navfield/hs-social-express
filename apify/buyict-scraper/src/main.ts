@@ -47,6 +47,8 @@ interface ActorInput {
     webhookUrl?: string;
     spaceId?: string;
     maxOpportunities?: number;
+    existingReferences?: string[]; // For incremental sync - skip these
+    incrementalMode?: boolean; // If true, only fetch new opportunities
 }
 
 await Actor.init();
@@ -56,7 +58,13 @@ const {
     webhookUrl,
     spaceId,
     maxOpportunities = 200,
+    existingReferences = [],
+    incrementalMode = false,
 } = input;
+
+// Build set of existing references for fast lookup
+const existingRefs = new Set(existingReferences);
+console.log(`Incremental mode: ${incrementalMode}, existing references: ${existingRefs.size}`);
 
 const opportunities: OpportunityData[] = [];
 const sentIds = new Set<string>(); // Track what we've already sent
@@ -278,11 +286,34 @@ const crawler = new PlaywrightCrawler({
                             criteria.push(...criteriaLines.slice(0, 5));
                         }
                         
-                        // Get title from h1
-                        const title = document.querySelector('h1')?.textContent?.trim() || 
-                                     document.querySelector('h2')?.textContent?.trim() || '';
+                        // Get title - try multiple strategies
+                        // The h1 often shows the site name, so we need the opportunity-specific title
+                        // Usually the title is the first substantial line on the page
+                        let title = '';
+                        
+                        // Strategy 1: Look for the first h2 (h1 is usually "BuyICT" site title)
+                        const h2 = document.querySelector('h2');
+                        if (h2 && h2.textContent && h2.textContent.trim().length > 10) {
+                            title = h2.textContent.trim();
+                        }
+                        
+                        // Strategy 2: First line of inner text that looks like a title
+                        if (!title) {
+                            // First substantial text line (not short labels or site branding)
+                            for (const line of lines.slice(0, 20)) {
+                                if (line.length > 15 && 
+                                    line !== 'BuyICT' && 
+                                    !line.includes('logged in') &&
+                                    !line.includes('opportunity') &&
+                                    !Object.keys(fieldLabels).includes(line)) {
+                                    title = line;
+                                    break;
+                                }
+                            }
+                        }
                         
                         // Debug: Log found fields
+                        console.log('Extracted title:', title);
                         console.log('Extracted data:', data);
                         
                         return {

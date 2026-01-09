@@ -20,6 +20,7 @@ import { Button } from '@/components/ui'
 import { ConnectionStatus, SyncStatus, UploadModal } from '@/components/buyict'
 import { useBuyICTStore } from '@/stores/buyictStore'
 import { useSpaceStore } from '@/stores/spaceStore'
+import { supabase } from '@/lib/supabase'
 import type { BuyICTConnectionMethod } from '@/types/buyict'
 
 const connectionMethods: {
@@ -78,6 +79,8 @@ export function Settings() {
     const [isTriggering, setIsTriggering] = useState(false)
     const [configSaved, setConfigSaved] = useState(false)
     const [triggerError, setTriggerError] = useState<string | null>(null)
+    const [isClearing, setIsClearing] = useState(false)
+    const [clearSuccess, setClearSuccess] = useState(false)
     // Apify run progress
     const [apifyRunId, setApifyRunId] = useState<string | null>(null)
     const [apifyRunStatus, setApifyRunStatus] = useState<string | null>(null)
@@ -202,7 +205,7 @@ export function Settings() {
                 },
                 body: JSON.stringify({
                     // Run settings - increase timeout and memory
-                    timeout: 600, // 10 minutes timeout
+                    timeout: 1800, // 30 minutes timeout for full scrape of 96+ opportunities
                     memoryMbytes: 2048, // 2GB memory instead of 1GB default
                     // Credentials are optional - only needed to respond to opportunities, not view them
                     ...(buyictEmail && buyictPassword ? {
@@ -355,6 +358,39 @@ export function Settings() {
         poll()
     }
 
+    // Clear all opportunities for this space
+    const handleClearAllOpportunities = async () => {
+        if (!currentSpace?.id) return
+
+        const confirmed = window.confirm(
+            'Are you sure you want to delete ALL opportunities?\n\nNote: Contacts and Organisations will be preserved.\n\nThis cannot be undone.'
+        )
+        if (!confirmed) return
+
+        setIsClearing(true)
+        setClearSuccess(false)
+        try {
+            const { error } = await supabase
+                .from('buyict_opportunities')
+                .delete()
+                .eq('space_id', currentSpace.id)
+
+            if (error) throw error
+
+            setClearSuccess(true)
+            // Refresh data
+            fetchSyncJobs(currentSpace.id)
+            fetchIntegration(currentSpace.id)
+
+            setTimeout(() => setClearSuccess(false), 3000)
+        } catch (err) {
+            console.error('Failed to clear opportunities:', err)
+            setTriggerError('Failed to clear opportunities')
+        } finally {
+            setIsClearing(false)
+        }
+    }
+
     if (isLoadingIntegration) {
         return (
             <div className="p-8 flex items-center justify-center min-h-[400px]">
@@ -475,6 +511,33 @@ export function Settings() {
                                         </>
                                     )}
                                 </Button>
+                            )}
+
+                            {/* Clear All button */}
+                            <Button
+                                variant="ghost"
+                                onClick={handleClearAllOpportunities}
+                                disabled={isClearing}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                                {isClearing ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        Clearing...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Trash2 className="w-4 h-4" />
+                                        Clear All Data
+                                    </>
+                                )}
+                            </Button>
+
+                            {clearSuccess && (
+                                <span className="text-sm text-green-600 flex items-center gap-1">
+                                    <CheckCircle2 className="w-4 h-4" />
+                                    All opportunities cleared!
+                                </span>
                             )}
                         </div>
 

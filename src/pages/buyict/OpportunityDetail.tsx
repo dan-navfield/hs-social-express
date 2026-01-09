@@ -15,9 +15,9 @@ import {
     Timer,
     Users,
     ClipboardList,
-    CalendarDays
+    CalendarDays,
+    Hash
 } from 'lucide-react'
-import { Button } from '@/components/ui'
 import { useSpaceStore } from '@/stores/spaceStore'
 import { supabase } from '@/lib/supabase'
 
@@ -51,6 +51,21 @@ interface Opportunity {
     requirements: string | null
     criteria: string[] | null
     engagement_type: string | null
+}
+
+// Helper component for displaying field values
+function FieldValue({ value, isEmail = false }: { value: string | null | undefined; isEmail?: boolean }) {
+    if (!value) {
+        return <span className="text-gray-400 italic">Not provided</span>
+    }
+    if (isEmail && value.includes('@')) {
+        return (
+            <a href={`mailto:${value}`} className="font-medium text-purple-600 hover:underline">
+                {value}
+            </a>
+        )
+    }
+    return <span className="font-medium text-gray-900">{value}</span>
 }
 
 export function OpportunityDetail() {
@@ -87,7 +102,7 @@ export function OpportunityDetail() {
     }, [id, currentSpace?.id])
 
     const formatDate = (dateStr: string | null) => {
-        if (!dateStr) return 'Not specified'
+        if (!dateStr) return null
         try {
             return new Date(dateStr).toLocaleDateString('en-AU', {
                 day: 'numeric',
@@ -176,170 +191,146 @@ export function OpportunityDetail() {
                 </div>
             </div>
 
-            {/* Key Details Grid */}
+            {/* Key Details Grid - Always show all fields */}
             <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Key Details</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {opportunity.buyer_entity_raw && (
-                        <div className="flex items-start gap-3">
-                            <Building2 className="w-5 h-5 text-gray-400 mt-0.5" />
-                            <div>
-                                <p className="text-sm text-gray-500">Buyer / Agency</p>
-                                <p className="font-medium text-gray-900">{opportunity.buyer_entity_raw}</p>
-                            </div>
+                    <div className="flex items-start gap-3">
+                        <Building2 className="w-5 h-5 text-gray-400 mt-0.5" />
+                        <div>
+                            <p className="text-sm text-gray-500">Buyer / Agency</p>
+                            <FieldValue value={opportunity.buyer_entity_raw} />
                         </div>
-                    )}
+                    </div>
 
-                    {opportunity.buyer_contact && (
-                        <div className="flex items-start gap-3">
-                            <Mail className="w-5 h-5 text-gray-400 mt-0.5" />
-                            <div>
-                                <p className="text-sm text-gray-500">Buyer Contact</p>
-                                <a href={`mailto:${opportunity.buyer_contact}`} className="font-medium text-purple-600 hover:underline">
-                                    {opportunity.buyer_contact}
-                                </a>
-                            </div>
+                    <div className="flex items-start gap-3">
+                        <Mail className="w-5 h-5 text-gray-400 mt-0.5" />
+                        <div>
+                            <p className="text-sm text-gray-500">Buyer Contact</p>
+                            <FieldValue value={opportunity.buyer_contact} isEmail />
                         </div>
-                    )}
+                    </div>
 
-                    {opportunity.rfq_id && (
-                        <div className="flex items-start gap-3">
-                            <FileText className="w-5 h-5 text-gray-400 mt-0.5" />
-                            <div>
-                                <p className="text-sm text-gray-500">RFQ ID</p>
-                                <p className="font-medium text-gray-900">{opportunity.rfq_id}</p>
-                            </div>
+                    <div className="flex items-start gap-3">
+                        <Hash className="w-5 h-5 text-gray-400 mt-0.5" />
+                        <div>
+                            <p className="text-sm text-gray-500">RFQ ID</p>
+                            <FieldValue value={opportunity.rfq_id} />
                         </div>
-                    )}
+                    </div>
 
-                    {opportunity.publish_date && (
-                        <div className="flex items-start gap-3">
-                            <CalendarDays className="w-5 h-5 text-gray-400 mt-0.5" />
-                            <div>
-                                <p className="text-sm text-gray-500">Published Date</p>
-                                <p className="font-medium text-gray-900">{opportunity.publish_date}</p>
-                            </div>
+                    <div className="flex items-start gap-3">
+                        <FileText className="w-5 h-5 text-gray-400 mt-0.5" />
+                        <div>
+                            <p className="text-sm text-gray-500">RFQ Type</p>
+                            <FieldValue value={opportunity.rfq_type} />
                         </div>
-                    )}
+                    </div>
 
-                    {opportunity.closing_date && (
-                        <div className="flex items-start gap-3">
-                            <Calendar className="w-5 h-5 text-gray-400 mt-0.5" />
-                            <div>
-                                <p className="text-sm text-gray-500">Closing Date</p>
-                                <p className="font-medium text-gray-900">{opportunity.closing_date}</p>
-                            </div>
+                    <div className="flex items-start gap-3">
+                        <CalendarDays className="w-5 h-5 text-gray-400 mt-0.5" />
+                        <div>
+                            <p className="text-sm text-gray-500">Published Date</p>
+                            <FieldValue value={opportunity.publish_date} />
                         </div>
-                    )}
+                    </div>
 
-                    {opportunity.deadline_for_questions && (
-                        <div className="flex items-start gap-3">
-                            <Timer className="w-5 h-5 text-gray-400 mt-0.5" />
-                            <div>
-                                <p className="text-sm text-gray-500">Deadline for Questions</p>
-                                <p className="font-medium text-gray-900">{opportunity.deadline_for_questions}</p>
-                            </div>
+                    <div className="flex items-start gap-3">
+                        <Calendar className="w-5 h-5 text-gray-400 mt-0.5" />
+                        <div>
+                            <p className="text-sm text-gray-500">Closing Date</p>
+                            <FieldValue value={opportunity.closing_date} />
                         </div>
-                    )}
+                    </div>
 
-                    {opportunity.location && (
-                        <div className="flex items-start gap-3">
-                            <MapPin className="w-5 h-5 text-gray-400 mt-0.5" />
-                            <div>
-                                <p className="text-sm text-gray-500">Location</p>
-                                <p className="font-medium text-gray-900">{opportunity.location}</p>
-                            </div>
+                    <div className="flex items-start gap-3">
+                        <Timer className="w-5 h-5 text-gray-400 mt-0.5" />
+                        <div>
+                            <p className="text-sm text-gray-500">Deadline for Questions</p>
+                            <FieldValue value={opportunity.deadline_for_questions} />
                         </div>
-                    )}
+                    </div>
 
-                    {opportunity.working_arrangement && (
-                        <div className="flex items-start gap-3">
-                            <Briefcase className="w-5 h-5 text-gray-400 mt-0.5" />
-                            <div>
-                                <p className="text-sm text-gray-500">Working Arrangement</p>
-                                <p className="font-medium text-gray-900">{opportunity.working_arrangement}</p>
-                            </div>
+                    <div className="flex items-start gap-3">
+                        <MapPin className="w-5 h-5 text-gray-400 mt-0.5" />
+                        <div>
+                            <p className="text-sm text-gray-500">Location</p>
+                            <FieldValue value={opportunity.location} />
                         </div>
-                    )}
+                    </div>
 
-                    {opportunity.industry_briefing && (
-                        <div className="flex items-start gap-3">
-                            <Users className="w-5 h-5 text-gray-400 mt-0.5" />
-                            <div>
-                                <p className="text-sm text-gray-500">Industry Briefing</p>
-                                <p className="font-medium text-gray-900">{opportunity.industry_briefing}</p>
-                            </div>
+                    <div className="flex items-start gap-3">
+                        <Briefcase className="w-5 h-5 text-gray-400 mt-0.5" />
+                        <div>
+                            <p className="text-sm text-gray-500">Working Arrangement</p>
+                            <FieldValue value={opportunity.working_arrangement} />
                         </div>
-                    )}
+                    </div>
 
-                    {opportunity.opportunity_status && (
-                        <div className="flex items-start gap-3">
-                            <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
-                            <div>
-                                <p className="text-sm text-gray-500">Status</p>
-                                <p className="font-medium text-gray-900">{opportunity.opportunity_status}</p>
-                            </div>
+                    <div className="flex items-start gap-3">
+                        <Users className="w-5 h-5 text-gray-400 mt-0.5" />
+                        <div>
+                            <p className="text-sm text-gray-500">Industry Briefing</p>
+                            <FieldValue value={opportunity.industry_briefing} />
                         </div>
-                    )}
+                    </div>
+
+                    <div className="flex items-start gap-3">
+                        <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
+                        <div>
+                            <p className="text-sm text-gray-500">Status</p>
+                            <FieldValue value={opportunity.opportunity_status} />
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            {/* Contract Details */}
-            {(opportunity.estimated_start_date || opportunity.initial_contract_duration || opportunity.extension_term) && (
-                <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
-                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Contract Details</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {opportunity.estimated_start_date && (
-                            <div>
-                                <p className="text-sm text-gray-500">Estimated Start Date</p>
-                                <p className="font-medium text-gray-900">{opportunity.estimated_start_date}</p>
-                            </div>
-                        )}
-                        {opportunity.initial_contract_duration && (
-                            <div>
-                                <p className="text-sm text-gray-500">Initial Contract Duration</p>
-                                <p className="font-medium text-gray-900">{opportunity.initial_contract_duration}</p>
-                            </div>
-                        )}
-                        {opportunity.extension_term && (
-                            <div>
-                                <p className="text-sm text-gray-500">Extension Term</p>
-                                <p className="font-medium text-gray-900">{opportunity.extension_term}</p>
-                            </div>
-                        )}
-                        {opportunity.extension_term_details && (
-                            <div>
-                                <p className="text-sm text-gray-500">Extension Details</p>
-                                <p className="font-medium text-gray-900">{opportunity.extension_term_details}</p>
-                            </div>
-                        )}
-                        {opportunity.number_of_extensions && (
-                            <div>
-                                <p className="text-sm text-gray-500">Number of Extensions</p>
-                                <p className="font-medium text-gray-900">{opportunity.number_of_extensions}</p>
-                            </div>
-                        )}
+            {/* Contract Details - Always show */}
+            <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Contract Details</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <p className="text-sm text-gray-500">Estimated Start Date</p>
+                        <FieldValue value={opportunity.estimated_start_date} />
+                    </div>
+                    <div>
+                        <p className="text-sm text-gray-500">Initial Contract Duration</p>
+                        <FieldValue value={opportunity.initial_contract_duration} />
+                    </div>
+                    <div>
+                        <p className="text-sm text-gray-500">Extension Term</p>
+                        <FieldValue value={opportunity.extension_term} />
+                    </div>
+                    <div>
+                        <p className="text-sm text-gray-500">Extension Details</p>
+                        <FieldValue value={opportunity.extension_term_details} />
+                    </div>
+                    <div>
+                        <p className="text-sm text-gray-500">Number of Extensions</p>
+                        <FieldValue value={opportunity.number_of_extensions} />
                     </div>
                 </div>
-            )}
+            </div>
 
-            {/* Requirements */}
-            {(opportunity.requirements || opportunity.description) && (
-                <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
-                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Requirements</h2>
+            {/* Requirements - Always show */}
+            <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Requirements</h2>
+                {opportunity.requirements || opportunity.description ? (
                     <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap">
                         {opportunity.requirements || opportunity.description}
                     </div>
-                </div>
-            )}
+                ) : (
+                    <p className="text-gray-400 italic">Not provided</p>
+                )}
+            </div>
 
-            {/* Criteria */}
-            {opportunity.criteria && opportunity.criteria.length > 0 && (
-                <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
-                    <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                        <ClipboardList className="w-5 h-5" />
-                        Evaluation Criteria
-                    </h2>
+            {/* Criteria - Always show */}
+            <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <ClipboardList className="w-5 h-5" />
+                    Evaluation Criteria
+                </h2>
+                {opportunity.criteria && opportunity.criteria.length > 0 ? (
                     <ul className="space-y-2">
                         {opportunity.criteria.map((criterion, index) => (
                             <li key={index} className="flex items-start gap-2 text-gray-700">
@@ -350,16 +341,15 @@ export function OpportunityDetail() {
                             </li>
                         ))}
                     </ul>
-                </div>
-            )}
+                ) : (
+                    <p className="text-gray-400 italic">Not provided</p>
+                )}
+            </div>
 
-            {/* Contact Info (legacy) */}
-            {opportunity.contact_text_raw && !opportunity.buyer_contact && (
+            {/* Legacy contact info */}
+            {opportunity.contact_text_raw && (
                 <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
-                    <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                        <Mail className="w-5 h-5" />
-                        Contact Information
-                    </h2>
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Raw Contact Text</h2>
                     <p className="text-gray-700">{opportunity.contact_text_raw}</p>
                 </div>
             )}
