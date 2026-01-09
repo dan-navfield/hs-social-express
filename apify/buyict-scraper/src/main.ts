@@ -62,7 +62,7 @@ const {
 } = input;
 
 if (!credentials?.email || !credentials?.password) {
-    throw new Error('BuyICT credentials (email and password) are required');
+    console.log('No BuyICT credentials provided - will scrape public opportunities only');
 }
 
 const opportunities: OpportunityData[] = [];

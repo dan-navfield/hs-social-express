@@ -135,8 +135,8 @@ export function Settings() {
     }
 
     const handleTriggerSync = async () => {
-        if (!apifyToken || !buyictEmail || !buyictPassword || !currentSpace?.id) {
-            setTriggerError('Please fill in all required fields')
+        if (!apifyToken || !currentSpace?.id) {
+            setTriggerError('Please enter your Apify API token')
             return
         }
 
@@ -145,16 +145,20 @@ export function Settings() {
 
         try {
             // Trigger the Apify actor via API
-            const response = await fetch(`https://api.apify.com/v2/acts/~buyict-scraper/runs?token=${apifyToken}`, {
+            // Using hs-social-express as the actor name from the GitHub-linked actor
+            const response = await fetch(`https://api.apify.com/v2/acts/verifiable_hare~hs-social-express/runs?token=${apifyToken}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    credentials: {
-                        email: buyictEmail,
-                        password: buyictPassword
-                    },
+                    // Credentials are optional - only needed to respond to opportunities, not view them
+                    ...(buyictEmail && buyictPassword ? {
+                        credentials: {
+                            email: buyictEmail,
+                            password: buyictPassword
+                        }
+                    } : {}),
                     webhookUrl: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/buyict-sync-webhook`,
                     spaceId: currentSpace.id,
                     maxOpportunities,

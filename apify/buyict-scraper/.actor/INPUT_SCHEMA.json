@@ -4,9 +4,9 @@
     "schemaVersion": 1,
     "properties": {
         "credentials": {
-            "title": "BuyICT Credentials",
+            "title": "BuyICT Credentials (Optional)",
             "type": "object",
-            "description": "Your BuyICT login credentials",
+            "description": "Optional - only needed to respond to opportunities. Public opportunities can be viewed without login.",
             "editor": "json",
             "prefill": {
                 "email": "",
@@ -62,7 +62,5 @@
             "default": "open"
         }
     },
-    "required": [
-        "credentials"
-    ]
+    "required": []
 }
