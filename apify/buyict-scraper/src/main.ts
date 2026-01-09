@@ -291,23 +291,41 @@ const crawler = new PlaywrightCrawler({
                         // Usually the title is the first substantial line on the page
                         let title = '';
                         
-                        // Strategy 1: Look for the first h2 (h1 is usually "BuyICT" site title)
-                        const h2 = document.querySelector('h2');
-                        if (h2 && h2.textContent && h2.textContent.trim().length > 10) {
-                            title = h2.textContent.trim();
-                        }
+                        // Known error messages to skip
+                        const errorMessages = [
+                            'You need to be logged in',
+                            'invited to respond',
+                            'Access denied',
+                            'Not authorized'
+                        ];
                         
-                        // Strategy 2: First line of inner text that looks like a title
-                        if (!title) {
-                            // First substantial text line (not short labels or site branding)
-                            for (const line of lines.slice(0, 20)) {
-                                if (line.length > 15 && 
-                                    line !== 'BuyICT' && 
-                                    !line.includes('logged in') &&
-                                    !line.includes('opportunity') &&
-                                    !Object.keys(fieldLabels).includes(line)) {
-                                    title = line;
-                                    break;
+                        // Check if page has an error message (requires login)
+                        const hasError = errorMessages.some(msg => pageText.includes(msg));
+                        
+                        if (!hasError) {
+                            // Strategy 1: Look for the first h2 (h1 is usually "BuyICT" site title)
+                            const h2 = document.querySelector('h2');
+                            if (h2 && h2.textContent && h2.textContent.trim().length > 10) {
+                                const h2Text = h2.textContent.trim();
+                                // Make sure it's not an error message
+                                if (!errorMessages.some(msg => h2Text.includes(msg))) {
+                                    title = h2Text;
+                                }
+                            }
+                            
+                            // Strategy 2: First line of inner text that looks like a title
+                            if (!title) {
+                                // First substantial text line (not short labels or site branding)
+                                for (const line of lines.slice(0, 20)) {
+                                    if (line.length > 15 && 
+                                        line !== 'BuyICT' && 
+                                        !line.toLowerCase().includes('logged in') &&
+                                        !line.toLowerCase().includes('invited') &&
+                                        !line.toLowerCase().includes('respond to this') &&
+                                        !Object.keys(fieldLabels).includes(line)) {
+                                        title = line;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -339,10 +357,16 @@ const crawler = new PlaywrightCrawler({
                         };
                     });
                     
+                    // Prefer listing page title over detail page title (which may have error messages)
+                    // Use detail title only if it's valid and not an error
+                    const finalTitle = (details.title && details.title.length > 5 && !details.title.includes('logged in') && !details.title.includes('invited'))
+                        ? details.title 
+                        : item.title;
+                    
                     const oppData: OpportunityData = {
                         buyict_reference: item.id,
                         buyict_url: item.url,
-                        title: details.title || item.title,
+                        title: finalTitle,
                         buyer_entity_raw: details.buyer || null,
                         category: null,
                         description: details.requirements || null,
