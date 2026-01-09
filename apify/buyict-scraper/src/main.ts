@@ -4,10 +4,12 @@
  * Scrapes procurement opportunities from BuyICT.gov.au
  * No login required - opportunities are publicly viewable
  * 
- * Page structure:
- * - URL: https://buyict.gov.au/sp?id=opportunities
- * - Shows cards with "View details" links
- * - Pagination shows "1 - 90 of 91 opportunities"
+ * Page structure discovered:
+ * - Cards use class: a.opportunities-card__link
+ * - Title in: .opportunities-card__title strong
+ * - ID in: .opportunities-card__number (format "ID: PCS-03324")
+ * - Agency in: .ng-binding div
+ * - Pagination: ul.pagination li a
  */
 
 import { Actor } from 'apify';
@@ -41,7 +43,6 @@ interface ActorInput {
     webhookUrl?: string;
     spaceId?: string;
     maxOpportunities?: number;
-    filterStatus?: 'open' | 'closed' | 'all';
 }
 
 await Actor.init();
@@ -73,29 +74,21 @@ const crawler = new PlaywrightCrawler({
         
         // Wait for page to fully load
         await page.waitForLoadState('networkidle');
-        await page.waitForTimeout(5000); // Give ServiceNow time to render
+        await page.waitForTimeout(5000);
         
         // Check if this is the listing page
         if (url.includes('sp?id=opportunities') && !url.includes('opportunity_details')) {
             log.info('On opportunities listing page');
             
-            // Take a screenshot for debugging
-            const pageTitle = await page.title();
-            log.info(`Page title: ${pageTitle}`);
-            
-            // Get page content to debug
-            const pageContent = await page.content();
-            log.info(`Page HTML length: ${pageContent.length}`);
-            
-            // Wait for cards to be visible
+            // Wait for the specific card elements
             try {
-                await page.waitForSelector('text=View details', { timeout: 15000 });
-                log.info('Found "View details" text on page');
+                await page.waitForSelector('a.opportunities-card__link', { timeout: 15000 });
+                log.info('Found opportunity cards');
             } catch (e) {
-                log.warning('Could not find "View details" - trying alternate selectors');
+                log.warning('Could not find opportunity cards with expected selector');
             }
             
-            // Try to extract opportunity data directly from the listing cards
+            // Extract all opportunity cards using the discovered structure
             const cards = await page.evaluate(() => {
                 const results: {
                     url: string;
@@ -107,96 +100,109 @@ const crawler = new PlaywrightCrawler({
                     workingArrangement: string;
                     module: string;
                     category: string;
+                    status: string;
                 }[] = [];
                 
-                // Find all links containing "View details"
-                const allLinks = Array.from(document.querySelectorAll('a'));
-                const viewDetailsLinks = allLinks.filter(a => 
-                    a.textContent?.toLowerCase().includes('view details')
-                );
+                // Select all card links with the specific class
+                const cardLinks = document.querySelectorAll('a.opportunities-card__link');
+                console.log(`Found ${cardLinks.length} card links`);
                 
-                console.log(`Found ${viewDetailsLinks.length} View details links`);
-                
-                for (const link of viewDetailsLinks) {
+                cardLinks.forEach((link) => {
                     const href = link.getAttribute('href') || '';
-                    const fullUrl = href.startsWith('http') ? href : `https://buyict.gov.au${href}`;
+                    const fullUrl = href.startsWith('http') ? href : `https://buyict.gov.au/sp${href}`;
                     
-                    // Find the parent card/container
-                    let card = link.parentElement;
-                    for (let i = 0; i < 10 && card; i++) {
-                        if (card.classList.contains('card') || 
-                            card.classList.contains('panel') ||
-                            card.getAttribute('class')?.includes('card') ||
-                            card.getAttribute('class')?.includes('opportunity')) {
-                            break;
-                        }
-                        card = card.parentElement;
-                    }
+                    // Get aria-label for full details
+                    const ariaLabel = link.getAttribute('aria-label') || '';
                     
-                    if (!card) {
-                        card = link.parentElement?.parentElement?.parentElement || null;
-                    }
-                    
-                    const cardText = card?.textContent || '';
-                    
-                    // Extract ID (format like PCS-03324, LH-05368)
-                    const idMatch = cardText.match(/ID:\s*([A-Z]+-\d+)/i) || 
-                                   cardText.match(/([A-Z]{2,4}-\d{4,6})/);
-                    const id = idMatch ? idMatch[1] : '';
-                    
-                    // Extract title - first strong or h3/h4 in the card
-                    const titleEl = card?.querySelector('strong, h3, h4, h5');
+                    // Extract title from .opportunities-card__title strong
+                    const titleEl = link.querySelector('.opportunities-card__title strong');
                     const title = titleEl?.textContent?.trim() || '';
                     
-                    // Extract other fields
-                    const agencyMatch = cardText.match(/(?:Agency|Department)[:\s]+([^\n]+?)(?=Working|Location|Closing|Module|$)/i);
-                    const closingMatch = cardText.match(/Closing:\s*([^\n]+)/i);
-                    const locationMatch = cardText.match(/Location:\s*([^\n]+)/i);
-                    const workingMatch = cardText.match(/Working arrangement:\s*([^\n]+)/i);
-                    const moduleMatch = cardText.match(/Module:\s*([^\n]+)/i);
-                    const categoryMatch = cardText.match(/Category:\s*([^\n]+)/i);
+                    // Extract ID from .opportunities-card__number
+                    const idEl = link.querySelector('.opportunities-card__number');
+                    const idText = idEl?.textContent?.trim() || '';
+                    const idMatch = idText.match(/ID:\s*([A-Z]+-\d+)/i);
+                    const id = idMatch ? idMatch[1] : '';
+                    
+                    // Extract agency - it's in a div with ng-binding class after the title
+                    const cardText = link.textContent || '';
+                    
+                    // Look for common patterns in the card text
+                    const agencyMatch = ariaLabel.match(/Department|Agency|Council|Government/i) ?
+                        '' : // Will extract from card content instead
+                        '';
+                    
+                    // Get all text nodes to extract structured data
+                    const allDivs = link.querySelectorAll('div');
+                    let agency = '';
+                    let closingDate = '';
+                    let location = '';
+                    let workingArrangement = '';
+                    let module = '';
+                    
+                    allDivs.forEach(div => {
+                        const text = div.textContent?.trim() || '';
+                        if (text.includes('Department') || text.includes('Agency') || text.includes('Council')) {
+                            if (!agency && !text.startsWith('ID:') && text.length < 100) {
+                                agency = text;
+                            }
+                        }
+                        if (text.includes('Closing:')) {
+                            closingDate = text.replace('Closing:', '').trim();
+                        }
+                        if (text.includes('Location:')) {
+                            location = text.replace('Location:', '').trim();
+                        }
+                        if (text.includes('Working arrangement:')) {
+                            workingArrangement = text.replace('Working arrangement:', '').trim();
+                        }
+                        if (text.includes('Module:')) {
+                            module = text.replace('Module:', '').trim();
+                        }
+                    });
+                    
+                    // Extract status from badge (e.g., "Invited sellers", "Open to all")
+                    const badge = link.querySelector('.badge, [class*="status"], [class*="label"]');
+                    const status = badge?.textContent?.trim() || 'Open';
                     
                     if (id || title) {
                         results.push({
                             url: fullUrl,
-                            title: title,
-                            id: id,
-                            agency: agencyMatch ? agencyMatch[1].trim() : '',
-                            closingDate: closingMatch ? closingMatch[1].trim() : '',
-                            location: locationMatch ? locationMatch[1].trim() : '',
-                            workingArrangement: workingMatch ? workingMatch[1].trim() : '',
-                            module: moduleMatch ? moduleMatch[1].trim() : '',
-                            category: categoryMatch ? categoryMatch[1].trim() : ''
+                            title,
+                            id,
+                            agency,
+                            closingDate,
+                            location,
+                            workingArrangement,
+                            module,
+                            category: module, // Use module as category
+                            status
                         });
                     }
-                }
-                
-                // Deduplicate by ID or URL
-                const seen = new Set();
-                return results.filter(r => {
-                    const key = r.id || r.url;
-                    if (seen.has(key)) return false;
-                    seen.add(key);
-                    return true;
                 });
+                
+                return results;
             });
             
             log.info(`Extracted ${cards.length} opportunity cards from listing`);
             
             // Store opportunities from cards
             for (const card of cards) {
-                if (opportunities.length >= maxOpportunities) break;
+                if (opportunities.length >= maxOpportunities) {
+                    log.info(`Reached max opportunities limit (${maxOpportunities})`);
+                    break;
+                }
                 
                 const oppData: OpportunityData = {
                     buyict_reference: card.id,
                     buyict_url: card.url,
                     title: card.title,
                     buyer_entity_raw: card.agency || null,
-                    category: card.category || card.module || null,
+                    category: card.category || null,
                     description: null,
                     publish_date: null,
                     closing_date: card.closingDate || null,
-                    opportunity_status: 'Open',
+                    opportunity_status: card.status || 'Open',
                     contact_text_raw: null,
                     rfq_id: card.id,
                     target_sector: card.agency || null,
@@ -216,16 +222,24 @@ const crawler = new PlaywrightCrawler({
                 log.info(`✓ Added: ${oppData.title} (${oppData.buyict_reference})`);
             }
             
-            // Handle pagination - click next page if available
+            // Handle pagination - click next page if more needed
             if (opportunities.length < maxOpportunities) {
                 try {
-                    // Look for next page button (the > arrow in pagination)
-                    const nextButton = await page.$('[aria-label="Next page"], button:has-text(">"), a:has-text(">"):not(:has-text(">>"))');
+                    // Look for the "›" (next) button in pagination
+                    const paginationLinks = await page.$$('ul.pagination li a');
+                    let nextButton = null;
+                    
+                    for (const link of paginationLinks) {
+                        const text = await link.textContent();
+                        if (text?.includes('›') && !text?.includes('»')) {
+                            nextButton = link;
+                            break;
+                        }
+                    }
+                    
                     if (nextButton) {
                         const isDisabled = await nextButton.evaluate(el => 
-                            el.hasAttribute('disabled') || 
-                            el.classList.contains('disabled') ||
-                            el.getAttribute('aria-disabled') === 'true'
+                            el.closest('li')?.classList.contains('disabled') || false
                         );
                         
                         if (!isDisabled) {
@@ -234,20 +248,18 @@ const crawler = new PlaywrightCrawler({
                             await page.waitForLoadState('networkidle');
                             await page.waitForTimeout(3000);
                             
-                            // Process the next page by running the handler again
-                            // The crawler will handle this naturally via the queue
+                            // Recursively process the next page
+                            await page.evaluate(() => window.scrollTo(0, 0));
+                        } else {
+                            log.info('No more pages (next button disabled)');
                         }
+                    } else {
+                        log.info('No pagination next button found');
                     }
                 } catch (e) {
-                    log.warning('No more pages or pagination failed');
+                    log.warning('Pagination handling failed');
                 }
             }
-        }
-        
-        // Handle individual opportunity detail page if we navigate to one
-        if (url.includes('opportunity_details') || url.includes('sys_id=')) {
-            log.info('On opportunity detail page');
-            // Extract detailed info here if needed
         }
     },
     
@@ -294,7 +306,7 @@ if (webhookUrl && opportunities.length > 0) {
     }
 } else if (!webhookUrl) {
     console.log('No webhook URL configured - data saved to Apify dataset only');
-} else if (opportunities.length === 0) {
+} else {
     console.log('No opportunities found - webhook not triggered');
 }
 
