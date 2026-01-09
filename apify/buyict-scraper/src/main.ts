@@ -211,103 +211,139 @@ const crawler = new PlaywrightCrawler({
                     
                     // Extract all details from the page
                     const details = await page.evaluate(() => {
-                        const getText = (selector: string): string => {
-                            const el = document.querySelector(selector);
-                            return el?.textContent?.trim() || '';
-                        };
-                        
-                        const pageText = document.body.innerText || '';
-                        
-                        // Helper to extract value after label
-                        const extractValue = (label: string): string => {
-                            const regex = new RegExp(`${label}[\\s:]+([^\\n]+)`, 'i');
-                            const match = pageText.match(regex);
-                            return match ? match[1].trim() : '';
-                        };
-                        
-                        // Extract requirements section using text search
-                        let requirements = '';
-                        const reqIndex = pageText.indexOf('Requirements');
-                        if (reqIndex > -1) {
-                            // Get text from Requirements to Criteria (or end)
-                            const criteriaIndex = pageText.indexOf('Criteria', reqIndex);
-                            const endIndex = criteriaIndex > reqIndex ? criteriaIndex : reqIndex + 3000;
-                            requirements = pageText.substring(reqIndex + 12, endIndex).trim();
-                        }
-                        
-                        // Extract criteria using text patterns
-                        const criteria: string[] = [];
-                        const criteriaMatch = pageText.match(/Essential criteria[\s\S]*?(?=Send a feedback|$)/i);
-                        if (criteriaMatch) {
-                            const lines = criteriaMatch[0].split('\n').filter(l => l.trim().length > 10);
-                            criteria.push(...lines.slice(0, 10)); // First 10 criteria lines
-                        }
-                        
-                        // Get all table data using simpler approach
                         const data: Record<string, string> = {};
                         
-                        // ALL fields visible on BuyICT detail page
-                        const patterns = [
-                            // Basic info
-                            { key: 'rfq_type', regex: /RFQ type[\s:]+([^\n]+)/i },
-                            { key: 'rfq_id', regex: /RFQ ID[\s:]+([^\n]+)/i },
-                            { key: 'rfq_published_date', regex: /RFQ published date[\s:]+([^\n]+)/i },
-                            { key: 'deadline_for_asking_questions', regex: /Deadline for asking questions[\s:]+([^\n]+)/i },
-                            { key: 'rfq_closing_date', regex: /RFQ closing date[\s:]+([^\n]+)/i },
-                            { key: 'buyer', regex: /^Buyer[\s:]+([^\n]+)/im },
-                            { key: 'buyer_contact', regex: /Buyer contact[\s:]+([^\n]+)/i },
-                            // Contract details  
-                            { key: 'estimated_start_date', regex: /Estimated start date[\s:]+([^\n]+)/i },
-                            { key: 'initial_contract_duration', regex: /Initial contract duration[\s:]+([^\n]+)/i },
-                            { key: 'extension_term', regex: /Extension term[\s:]+([^\n]+)/i },
-                            { key: 'extension_term_details', regex: /Extension term details[\s:]+([^\n]+)/i },
-                            { key: 'number_of_extensions', regex: /Number of extensions[\s:]+([^\n]+)/i },
-                            // Work details
-                            { key: 'working_arrangements', regex: /Working arrangements?[\s:]+([^\n]+)/i },
-                            { key: 'industry_briefing', regex: /Industry briefing[\s:]+([^\n]+)/i },
-                            { key: 'location', regex: /Location[\s:]+([^\n]+)/i },
-                            // Module info (from card/listing)
-                            { key: 'module', regex: /Module[\s:]+([^\n]+)/i },
-                            { key: 'category', regex: /Category[\s:]+([^\n]+)/i },
-                        ];
-                        
-                        patterns.forEach(p => {
-                            const m = pageText.match(p.regex);
-                            if (m) data[p.key] = m[1].trim();
-                        });
-                        
-                        // Also try table format for any missed data
-                        const rows = document.querySelectorAll('table tr');
+                        // Method 1: Look for definition list style (dt/dd or label/value pairs)
+                        // BuyICT uses row-based layout with labels and values
+                        const rows = document.querySelectorAll('.row, tr, dl, .field-row, .detail-row');
                         rows.forEach(row => {
-                            const cells = row.querySelectorAll('td');
-                            const label = row.querySelector('th')?.textContent?.trim();
-                            const value = cells[0]?.textContent?.trim();
-                            if (label && value && !data[label.toLowerCase().replace(/\s+/g, '_')]) {
-                                data[label.toLowerCase().replace(/\s+/g, '_')] = value;
+                            const label = row.querySelector('.label, th, dt, .field-label, .col-md-4, .col-sm-4')?.textContent?.trim();
+                            const value = row.querySelector('.value, td, dd, .field-value, .col-md-8, .col-sm-8')?.textContent?.trim();
+                            if (label && value && label.length < 50) {
+                                const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '');
+                                if (key.length > 2 && value.length < 500) {
+                                    data[key] = value;
+                                }
                             }
                         });
                         
+                        // Method 2: Find all text nodes that look like "Label: Value" or "Label Value" patterns
+                        const pageText = document.body.innerText || '';
+                        const fieldPatterns = [
+                            { key: 'rfq_type', label: 'RFQ type' },
+                            { key: 'rfq_id', label: 'RFQ ID' },
+                            { key: 'rfq_published_date', label: 'RFQ published date' },
+                            { key: 'deadline_for_questions', label: 'Deadline for asking questions' },
+                            { key: 'rfq_closing_date', label: 'RFQ closing date' },
+                            { key: 'buyer', label: 'Buyer' },
+                            { key: 'buyer_contact', label: 'Buyer contact' },
+                            { key: 'estimated_start_date', label: 'Estimated start date' },
+                            { key: 'initial_contract_duration', label: 'Initial contract duration' },
+                            { key: 'extension_term', label: 'Extension term' },
+                            { key: 'extension_term_details', label: 'Extension term details' },
+                            { key: 'number_of_extensions', label: 'Number of extensions' },
+                            { key: 'working_arrangements', label: 'Working arrangements' },
+                            { key: 'industry_briefing', label: 'Industry briefing' },
+                            { key: 'location', label: 'Location' },
+                        ];
+                        
+                        // For each field, find the label element and get sibling/adjacent value
+                        fieldPatterns.forEach(({ key, label }) => {
+                            if (data[key]) return; // Already found
+                            
+                            // Try to find element containing the label
+                            const elements = document.querySelectorAll('*');
+                            for (const el of elements) {
+                                if (el.children.length === 0 && // Leaf node
+                                    el.textContent?.trim() === label) {
+                                    // Found label, look for value in next element or parent's next child
+                                    const parent = el.parentElement;
+                                    if (!parent) continue;
+                                    
+                                    // Check next sibling
+                                    const nextSibling = el.nextElementSibling;
+                                    if (nextSibling?.textContent?.trim()) {
+                                        data[key] = nextSibling.textContent.trim();
+                                        break;
+                                    }
+                                    
+                                    // Check parent's next sibling
+                                    const parentNextSibling = parent.nextElementSibling;
+                                    if (parentNextSibling?.textContent?.trim()) {
+                                        data[key] = parentNextSibling.textContent.trim();
+                                        break;
+                                    }
+                                }
+                            }
+                        });
+                        
+                        // Method 3: Fallback to line-by-line text extraction
+                        const lines = pageText.split('\n').map(l => l.trim()).filter(l => l);
+                        for (let i = 0; i < lines.length - 1; i++) {
+                            const line = lines[i];
+                            const nextLine = lines[i + 1];
+                            
+                            fieldPatterns.forEach(({ key, label }) => {
+                                if (data[key]) return; // Already found
+                                if (line === label && nextLine && !nextLine.match(/^[A-Z][a-z]+ [a-z]/)) {
+                                    // Line matches label exactly, next line is value
+                                    if (nextLine.length < 200 && !fieldPatterns.some(p => p.label === nextLine)) {
+                                        data[key] = nextLine;
+                                    }
+                                }
+                            });
+                        }
+                        
+                        // Extract email from buyer_contact or page
+                        const emailMatch = pageText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+                        if (emailMatch && !data['buyer_contact']) {
+                            data['buyer_contact'] = emailMatch[0];
+                        }
+                        
+                        // Extract requirements section
+                        let requirements = '';
+                        const reqStartIndex = pageText.indexOf('Requirements');
+                        if (reqStartIndex > -1) {
+                            const reqSection = pageText.substring(reqStartIndex);
+                            const criteriaIndex = reqSection.indexOf('Criteria');
+                            const endIndex = criteriaIndex > 50 ? criteriaIndex : Math.min(reqSection.length, 2000);
+                            requirements = reqSection.substring(12, endIndex).trim();
+                        }
+                        
+                        // Extract essential criteria as array
+                        const criteria: string[] = [];
+                        const criteriaStartIndex = pageText.indexOf('Essential criteria');
+                        if (criteriaStartIndex > -1) {
+                            const criteriaSection = pageText.substring(criteriaStartIndex, criteriaStartIndex + 2000);
+                            const criteriaLines = criteriaSection.split('\n')
+                                .map(l => l.trim())
+                                .filter(l => l.length > 20 && !l.startsWith('Essential criteria') && !l.startsWith('Weighting'));
+                            criteria.push(...criteriaLines.slice(0, 5));
+                        }
+                        
+                        // Get title
+                        const title = document.querySelector('h1, h2, .opportunity-title, .page-title')?.textContent?.trim() || '';
+                        
                         return {
-                            title: getText('h1') || getText('h2') || getText('.title'),
-                            rfqType: extractValue('RFQ type') || data['rfq_type'],
-                            rfqId: extractValue('RFQ ID') || data['rfq_id'],
-                            publishDate: extractValue('RFQ published date') || extractValue('Published') || data['rfq_published_date'],
-                            closingDate: extractValue('RFQ closing date') || extractValue('Closing') || data['rfq_closing_date'],
-                            deadlineQuestions: extractValue('Deadline for asking questions') || data['deadline_for_asking_questions'],
-                            buyer: extractValue('Buyer') || data['buyer'],
-                            buyerContact: extractValue('Buyer contact') || data['buyer_contact'],
-                            estimatedStartDate: extractValue('Estimated start date') || data['estimated_start_date'],
-                            contractDuration: extractValue('Initial contract duration') || data['initial_contract_duration'],
-                            extensionTerm: extractValue('Extension term') || data['extension_term'],
-                            extensionTermDetails: extractValue('Extension term details') || data['extension_term_details'],
-                            numberOfExtensions: extractValue('Number of extensions') || data['number_of_extensions'],
-                            workingArrangement: extractValue('Working arrangement') || data['working_arrangements'],
-                            industryBriefing: extractValue('Industry briefing') || data['industry_briefing'],
-                            location: extractValue('Location') || data['location'],
-                            requirements: requirements.substring(0, 1500), // Limit to save memory
-                            criteria: criteria.slice(0, 5), // Only first 5 criteria
-                            module: data['module'] || '',
-                            category: data['category'] || ''
+                            title,
+                            rfqType: data['rfq_type'] || '',
+                            rfqId: data['rfq_id'] || data['rfq_id'] || '',
+                            publishDate: data['rfq_published_date'] || '',
+                            closingDate: data['rfq_closing_date'] || '',
+                            deadlineQuestions: data['deadline_for_questions'] || '',
+                            buyer: data['buyer'] || '',
+                            buyerContact: data['buyer_contact'] || '',
+                            estimatedStartDate: data['estimated_start_date'] || '',
+                            contractDuration: data['initial_contract_duration'] || '',
+                            extensionTerm: data['extension_term'] || '',
+                            extensionTermDetails: data['extension_term_details'] || '',
+                            numberOfExtensions: data['number_of_extensions'] || '',
+                            workingArrangement: data['working_arrangements'] || '',
+                            industryBriefing: data['industry_briefing'] || '',
+                            location: data['location'] || '',
+                            requirements: requirements.substring(0, 1500),
+                            criteria: criteria.slice(0, 5),
+                            rawData: data // For debugging
                         };
                     });
                     
