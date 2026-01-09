@@ -21,8 +21,7 @@
                 "password": {
                     "type": "string",
                     "title": "Password",
-                    "description": "Your BuyICT login password",
-                    "isSecret": true
+                    "description": "Your BuyICT login password"
                 }
             },
             "required": [

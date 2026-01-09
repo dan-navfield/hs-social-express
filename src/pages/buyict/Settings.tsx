@@ -457,6 +457,9 @@ export function Settings() {
                                                     value={buyictPassword}
                                                     onChange={(e) => setBuyictPassword(e.target.value)}
                                                     placeholder="Enter password"
+                                                    autoComplete="new-password"
+                                                    data-lpignore="true"
+                                                    data-1p-ignore="true"
                                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                                                 />
                                                 <p className="text-xs text-gray-500 mt-1">
