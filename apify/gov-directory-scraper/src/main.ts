@@ -81,8 +81,9 @@ async function sendBatch(batch: AgencyData[], isFinal: boolean = false) {
 const crawler = new PlaywrightCrawler({
     headless: true,
     maxRequestsPerCrawl: maxAgencies + 50,
-    navigationTimeoutSecs: 60,
+    navigationTimeoutSecs: 120, // Increased from 60
     requestHandlerTimeoutSecs: 600,
+    maxRequestRetries: 3,
     
     async requestHandler({ page, request, log }) {
         const url = request.url;
@@ -91,7 +92,9 @@ const crawler = new PlaywrightCrawler({
         if (url === PORTFOLIOS_URL) {
             log.info('=== Phase 1: Collecting portfolio pages ===');
             
-            await page.waitForSelector('a[href*="/portfolios/"]', { timeout: 15000 });
+            // Wait for page to fully load instead of specific selector
+            await page.waitForLoadState('networkidle', { timeout: 30000 });
+            await page.waitForTimeout(2000); // Extra buffer for dynamic content
             
             const portfolioLinks = await page.evaluate(() => {
                 const links = document.querySelectorAll('a[href*="/portfolios/"]');
@@ -106,6 +109,12 @@ const crawler = new PlaywrightCrawler({
             });
             
             log.info(`Found ${portfolioLinks.length} portfolios`);
+            
+            if (portfolioLinks.length === 0) {
+                log.warning('No portfolio links found! Dumping page content for debug...');
+                const content = await page.content();
+                log.info(`Page content length: ${content.length}`);
+            }
             
             // Add all portfolio pages to queue
             for (const link of portfolioLinks) {
