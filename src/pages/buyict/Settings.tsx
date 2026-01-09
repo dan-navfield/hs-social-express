@@ -78,6 +78,10 @@ export function Settings() {
     const [isTriggering, setIsTriggering] = useState(false)
     const [configSaved, setConfigSaved] = useState(false)
     const [triggerError, setTriggerError] = useState<string | null>(null)
+    // Apify run progress
+    const [apifyRunId, setApifyRunId] = useState<string | null>(null)
+    const [apifyRunStatus, setApifyRunStatus] = useState<string | null>(null)
+    const [syncStartedAt, setSyncStartedAt] = useState<Date | null>(null)
 
     useEffect(() => {
         if (currentSpace?.id) {
@@ -86,8 +90,19 @@ export function Settings() {
         }
     }, [currentSpace?.id, fetchIntegration, fetchSyncJobs])
 
-    // Load saved config from localStorage
+    // Load saved config from database (integration.config) or localStorage
     useEffect(() => {
+        // First try to load from integration config (database)
+        if (integration?.config) {
+            const config = integration.config as { apifyToken?: string; buyictEmail?: string; maxOpportunities?: number }
+            if (config.apifyToken) setApifyToken(config.apifyToken)
+            if (config.buyictEmail) setBuyictEmail(config.buyictEmail)
+            if (config.maxOpportunities) setMaxOpportunities(config.maxOpportunities)
+            setConfigSaved(true)
+            return
+        }
+
+        // Fall back to localStorage
         const savedConfig = localStorage.getItem('buyict_apify_config')
         if (savedConfig) {
             try {
@@ -100,7 +115,7 @@ export function Settings() {
                 console.error('Failed to parse saved config:', e)
             }
         }
-    }, [])
+    }, [integration?.config])
 
     const handleCreateIntegration = async (method: BuyICTConnectionMethod) => {
         if (!currentSpace?.id) return
@@ -122,16 +137,44 @@ export function Settings() {
         }
     }
 
-    const handleSaveApifyConfig = () => {
-        const config = {
-            apifyToken,
-            buyictEmail,
-            maxOpportunities
+    const handleSaveApifyConfig = async () => {
+        if (!currentSpace?.id) return
+
+        setIsSavingConfig(true)
+        try {
+            // Save to database via the integration's config field
+            const { supabase } = await import('@/lib/supabase')
+
+            const { error } = await supabase
+                .from('buyict_integrations')
+                .update({
+                    config: {
+                        apifyToken,
+                        buyictEmail,
+                        maxOpportunities
+                    },
+                    updated_at: new Date().toISOString()
+                })
+                .eq('space_id', currentSpace.id)
+
+            if (error) throw error
+
+            // Also save to localStorage as backup
+            localStorage.setItem('buyict_apify_config', JSON.stringify({
+                apifyToken,
+                buyictEmail,
+                maxOpportunities
+            }))
+
+            setConfigSaved(true)
+            // Refresh integration to get updated config
+            fetchIntegration(currentSpace.id)
+        } catch (err) {
+            console.error('Failed to save config:', err)
+            setTriggerError('Failed to save configuration')
+        } finally {
+            setIsSavingConfig(false)
         }
-        localStorage.setItem('buyict_apify_config', JSON.stringify(config))
-        // Note: Password is NOT saved for security - user must enter each time
-        setConfigSaved(true)
-        setIsSavingConfig(false)
     }
 
     const handleTriggerSync = async () => {
@@ -174,12 +217,15 @@ export function Settings() {
             const result = await response.json()
             console.log('Apify run started:', result)
 
-            // Refresh sync jobs to show the new running job
-            setTimeout(() => {
-                if (currentSpace?.id) {
-                    fetchSyncJobs(currentSpace.id)
-                }
-            }, 2000)
+            // Store run info for progress tracking
+            setApifyRunId(result.data?.id || null)
+            setApifyRunStatus('RUNNING')
+            setSyncStartedAt(new Date())
+
+            // Poll for run status
+            if (result.data?.id) {
+                pollApifyRunStatus(result.data.id)
+            }
 
         } catch (err) {
             console.error('Failed to trigger sync:', err)
@@ -187,6 +233,36 @@ export function Settings() {
         } finally {
             setIsTriggering(false)
         }
+    }
+
+    // Poll Apify run status
+    const pollApifyRunStatus = async (runId: string) => {
+        const poll = async () => {
+            try {
+                const response = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${apifyToken}`)
+                if (response.ok) {
+                    const data = await response.json()
+                    const status = data.data?.status
+                    setApifyRunStatus(status)
+
+                    // Keep polling if running
+                    if (status === 'RUNNING' || status === 'READY') {
+                        setTimeout(poll, 3000) // Poll every 3 seconds
+                    } else {
+                        // Run finished - refresh sync jobs
+                        setTimeout(() => {
+                            if (currentSpace?.id) {
+                                fetchSyncJobs(currentSpace.id)
+                                fetchIntegration(currentSpace.id)
+                            }
+                        }, 2000)
+                    }
+                }
+            } catch (err) {
+                console.error('Error polling run status:', err)
+            }
+        }
+        poll()
     }
 
     if (isLoadingIntegration) {
@@ -295,7 +371,7 @@ export function Settings() {
                             {integration.connection_method === 'api' && (
                                 <Button
                                     onClick={handleTriggerSync}
-                                    disabled={isTriggering || !apifyToken || !buyictEmail || !buyictPassword}
+                                    disabled={isTriggering || !apifyToken}
                                 >
                                     {isTriggering ? (
                                         <>
@@ -319,6 +395,57 @@ export function Settings() {
                                 <div>
                                     <p className="font-medium text-red-800">Error</p>
                                     <p className="text-sm text-red-700 mt-1">{triggerError || integration.last_sync_error}</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Live Sync Progress */}
+                        {apifyRunStatus && (
+                            <div className={`p-4 rounded-lg flex items-start gap-3 ${apifyRunStatus === 'SUCCEEDED' ? 'bg-green-50 border border-green-200' :
+                                apifyRunStatus === 'FAILED' || apifyRunStatus === 'ABORTED' ? 'bg-red-50 border border-red-200' :
+                                    'bg-blue-50 border border-blue-200'
+                                }`}>
+                                {(apifyRunStatus === 'RUNNING' || apifyRunStatus === 'READY') && (
+                                    <Loader2 className="w-5 h-5 text-blue-600 animate-spin shrink-0 mt-0.5" />
+                                )}
+                                {apifyRunStatus === 'SUCCEEDED' && (
+                                    <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
+                                )}
+                                {(apifyRunStatus === 'FAILED' || apifyRunStatus === 'ABORTED') && (
+                                    <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                                )}
+                                <div className="flex-1">
+                                    <div className="flex items-center justify-between">
+                                        <p className={`font-medium ${apifyRunStatus === 'SUCCEEDED' ? 'text-green-800' :
+                                            apifyRunStatus === 'FAILED' || apifyRunStatus === 'ABORTED' ? 'text-red-800' :
+                                                'text-blue-800'
+                                            }`}>
+                                            {apifyRunStatus === 'RUNNING' && 'Scraping BuyICT opportunities...'}
+                                            {apifyRunStatus === 'READY' && 'Starting scraper...'}
+                                            {apifyRunStatus === 'SUCCEEDED' && 'Sync completed successfully!'}
+                                            {apifyRunStatus === 'FAILED' && 'Sync failed'}
+                                            {apifyRunStatus === 'ABORTED' && 'Sync was aborted'}
+                                        </p>
+                                        {syncStartedAt && (
+                                            <span className="text-xs text-gray-500">
+                                                Started {Math.round((Date.now() - syncStartedAt.getTime()) / 1000)}s ago
+                                            </span>
+                                        )}
+                                    </div>
+                                    {apifyRunId && (
+                                        <div className="mt-2 flex items-center gap-2">
+                                            <span className="text-xs text-gray-500">Run ID: {apifyRunId.slice(0, 8)}...</span>
+                                            <a
+                                                href={`https://console.apify.com/actors/runs/${apifyRunId}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-xs text-purple-600 hover:text-purple-700 flex items-center gap-1"
+                                            >
+                                                <ExternalLink className="w-3 h-3" />
+                                                View in Apify Console
+                                            </a>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -428,56 +555,11 @@ export function Settings() {
                                         </div>
                                     </div>
 
-                                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                                        <h6 className="font-medium text-amber-800 mb-2">BuyICT Login Credentials</h6>
-                                        <p className="text-sm text-amber-700 mb-3">
-                                            The scraper needs to log into BuyICT to access opportunities.
-                                            Password is NOT saved - you must enter it each time for security.
-                                        </p>
-
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                    BuyICT Email
-                                                </label>
-                                                <input
-                                                    type="email"
-                                                    value={buyictEmail}
-                                                    onChange={(e) => {
-                                                        setBuyictEmail(e.target.value)
-                                                        setConfigSaved(false)
-                                                    }}
-                                                    placeholder="your@email.gov.au"
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                                                />
-                                            </div>
-
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                    BuyICT Password
-                                                </label>
-                                                <input
-                                                    type="password"
-                                                    value={buyictPassword}
-                                                    onChange={(e) => setBuyictPassword(e.target.value)}
-                                                    placeholder="Enter password"
-                                                    autoComplete="new-password"
-                                                    data-lpignore="true"
-                                                    data-1p-ignore="true"
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                                                />
-                                                <p className="text-xs text-gray-500 mt-1">
-                                                    Not saved - enter each sync
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-
                                     <div className="flex items-center gap-3">
                                         <Button
                                             variant="secondary"
                                             onClick={handleSaveApifyConfig}
-                                            disabled={!apifyToken || !buyictEmail}
+                                            disabled={!apifyToken || isSavingConfig}
                                         >
                                             {configSaved ? (
                                                 <>
