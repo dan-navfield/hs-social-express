@@ -79,27 +79,35 @@ const crawler = new PlaywrightCrawler({
     async requestHandler({ page, request, enqueueLinks, log }) {
         const url = request.url;
         
-        // Handle login page - check if we're redirected to login
-        if (url.includes('/loginpage') || url.includes('login') || await page.$('input[id*="email"], input[id*="user"]')) {
+        // Wait for page to load
+        await page.waitForLoadState('networkidle');
+        await page.waitForTimeout(2000);
+        
+        // Check if we're on a login page by looking at the page title or specific login elements
+        const pageTitle = await page.title();
+        const isLoginPage = url.includes('/loginpage') || 
+                           url.includes('login') || 
+                           pageTitle.toLowerCase().includes('sign in') ||
+                           pageTitle.toLowerCase().includes('log in');
+        
+        if (isLoginPage) {
             if (credentials?.email && credentials?.password) {
                 log.info('Login page detected, authenticating...');
                 
-                await page.waitForTimeout(2000);
-                
                 // Find and fill email field
-                const emailInput = await page.$('input[type="email"], input[id*="email"], input[name*="email"], input[id*="user"]');
+                const emailInput = await page.$('input[type="email"], input[id*="email"], input[name*="email"]');
                 if (emailInput) {
                     await emailInput.fill(credentials.email);
                 }
                 
                 // Find and fill password field
-                const passwordInput = await page.$('input[type="password"], input[id*="password"]');
+                const passwordInput = await page.$('input[type="password"]');
                 if (passwordInput) {
                     await passwordInput.fill(credentials.password);
                 }
                 
                 // Submit
-                const submitButton = await page.$('button[type="submit"], input[type="submit"], button:has-text("Sign in"), button:has-text("Log in"), button:has-text("Login")');
+                const submitButton = await page.$('button[type="submit"], input[type="submit"], button:has-text("Sign in"), button:has-text("Log in")');
                 if (submitButton) {
                     await submitButton.click();
                 } else {
@@ -112,8 +120,7 @@ const crawler = new PlaywrightCrawler({
                 // Navigate to opportunities page after login
                 await page.goto(`${BASE_URL}/sp?id=opportunities`, { waitUntil: 'networkidle' });
             } else {
-                log.warning('Login required but no credentials provided');
-                return;
+                log.warning('Login page detected but no credentials provided - continuing without auth');
             }
         }
         
