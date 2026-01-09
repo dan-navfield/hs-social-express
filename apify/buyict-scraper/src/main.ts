@@ -1,24 +1,17 @@
 /**
  * BuyICT Opportunities Scraper
  * 
- * This Apify actor scrapes procurement opportunities from BuyICT.gov.au
- * It handles authentication and extracts opportunity details including contacts.
+ * Scrapes procurement opportunities from BuyICT.gov.au
+ * No login required - opportunities are publicly viewable
  * 
- * Deploy to Apify: https://console.apify.com/actors
- * 
- * Based on actual BuyICT page structure:
- * - URL: https://www.buyict.gov.au/sp?id=opportunities
- * - Cards with "View details" links
- * - ServiceNow-based portal
+ * Page structure:
+ * - URL: https://buyict.gov.au/sp?id=opportunities
+ * - Shows cards with "View details" links
+ * - Pagination shows "1 - 90 of 91 opportunities"
  */
 
 import { Actor } from 'apify';
 import { PlaywrightCrawler, Dataset } from 'crawlee';
-
-interface BuyICTCredentials {
-    email: string;
-    password: string;
-}
 
 interface OpportunityData {
     buyict_reference: string;
@@ -45,7 +38,6 @@ interface OpportunityData {
 }
 
 interface ActorInput {
-    credentials?: BuyICTCredentials;
     webhookUrl?: string;
     spaceId?: string;
     maxOpportunities?: number;
@@ -56,365 +48,216 @@ await Actor.init();
 
 const input = await Actor.getInput<ActorInput>() ?? {};
 const {
-    credentials,
     webhookUrl,
     spaceId,
     maxOpportunities = 100,
-    filterStatus = 'open'
 } = input;
 
-if (!credentials?.email || !credentials?.password) {
-    console.log('No BuyICT credentials provided - will scrape public opportunities only');
-}
-
 const opportunities: OpportunityData[] = [];
-const BASE_URL = 'https://www.buyict.gov.au';
+const BASE_URL = 'https://buyict.gov.au';
+const START_URL = `${BASE_URL}/sp?id=opportunities`;
+
+console.log('=== BuyICT Scraper Starting ===');
+console.log(`Target URL: ${START_URL}`);
+console.log(`Max opportunities: ${maxOpportunities}`);
 
 const crawler = new PlaywrightCrawler({
     headless: true,
-    maxRequestsPerCrawl: maxOpportunities + 50, // Extra for pagination
-    navigationTimeoutSecs: 90,
+    maxRequestsPerCrawl: maxOpportunities + 100,
+    navigationTimeoutSecs: 120,
     requestHandlerTimeoutSecs: 180,
     
-    async requestHandler({ page, request, enqueueLinks, log }) {
+    async requestHandler({ page, request, log }) {
         const url = request.url;
+        log.info(`Processing: ${url}`);
         
-        // Wait for page to load
+        // Wait for page to fully load
         await page.waitForLoadState('networkidle');
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(5000); // Give ServiceNow time to render
         
-        // Check if we're on a login page by looking at the page title or specific login elements
-        const pageTitle = await page.title();
-        const isLoginPage = url.includes('/loginpage') || 
-                           url.includes('login') || 
-                           pageTitle.toLowerCase().includes('sign in') ||
-                           pageTitle.toLowerCase().includes('log in');
-        
-        if (isLoginPage) {
-            if (credentials?.email && credentials?.password) {
-                log.info('Login page detected, authenticating...');
-                
-                // Find and fill email field
-                const emailInput = await page.$('input[type="email"], input[id*="email"], input[name*="email"]');
-                if (emailInput) {
-                    await emailInput.fill(credentials.email);
-                }
-                
-                // Find and fill password field
-                const passwordInput = await page.$('input[type="password"]');
-                if (passwordInput) {
-                    await passwordInput.fill(credentials.password);
-                }
-                
-                // Submit
-                const submitButton = await page.$('button[type="submit"], input[type="submit"], button:has-text("Sign in"), button:has-text("Log in")');
-                if (submitButton) {
-                    await submitButton.click();
-                } else {
-                    await page.keyboard.press('Enter');
-                }
-                
-                await page.waitForLoadState('networkidle', { timeout: 30000 });
-                log.info('Login completed, navigating to opportunities...');
-                
-                // Navigate to opportunities page after login
-                await page.goto(`${BASE_URL}/sp?id=opportunities`, { waitUntil: 'networkidle' });
-            } else {
-                log.warning('Login page detected but no credentials provided - continuing without auth');
-            }
-        }
-        
-        // Handle opportunities listing page
-        if (url.includes('sp?id=opportunities') || url.includes('/opportunities') && !url.includes('sp?id=opportunity_details')) {
-            log.info('Scraping opportunities listing page...');
+        // Check if this is the listing page
+        if (url.includes('sp?id=opportunities') && !url.includes('opportunity_details')) {
+            log.info('On opportunities listing page');
             
-            // Wait for opportunity cards to load
-            await page.waitForTimeout(5000);
+            // Take a screenshot for debugging
+            const pageTitle = await page.title();
+            log.info(`Page title: ${pageTitle}`);
             
-            // Wait for the cards to be visible
+            // Get page content to debug
+            const pageContent = await page.content();
+            log.info(`Page HTML length: ${pageContent.length}`);
+            
+            // Wait for cards to be visible
             try {
-                await page.waitForSelector('a:has-text("View details")', { timeout: 15000 });
+                await page.waitForSelector('text=View details', { timeout: 15000 });
+                log.info('Found "View details" text on page');
             } catch (e) {
-                log.warning('Could not find View details links - page may require login');
+                log.warning('Could not find "View details" - trying alternate selectors');
             }
             
-            // Extract opportunity info directly from the cards
-            const cardData = await page.evaluate(() => {
-                const cards: { 
-                    url: string; 
-                    title: string; 
+            // Try to extract opportunity data directly from the listing cards
+            const cards = await page.evaluate(() => {
+                const results: {
+                    url: string;
+                    title: string;
                     id: string;
                     agency: string;
                     closingDate: string;
                     location: string;
                     workingArrangement: string;
                     module: string;
+                    category: string;
                 }[] = [];
                 
-                // Find all "View details" links
-                const viewDetailsLinks = document.querySelectorAll('a');
-                viewDetailsLinks.forEach((link) => {
-                    if (link.textContent?.includes('View details')) {
-                        const href = (link as HTMLAnchorElement).href;
-                        
-                        // Get the parent card container
-                        const card = link.closest('.card, [class*="card"], .panel, [class*="opportunity"]') || link.parentElement?.parentElement?.parentElement;
-                        
-                        if (card) {
-                            const cardText = card.textContent || '';
-                            
-                            // Extract title (usually the first bold/header text)
-                            const titleEl = card.querySelector('h3, h4, .title, strong');
-                            const title = titleEl?.textContent?.trim() || '';
-                            
-                            // Extract ID (format: ID: XXX-XXXXX)
-                            const idMatch = cardText.match(/ID:\s*([A-Z]+-\d+)/);
-                            const id = idMatch ? idMatch[1] : '';
-                            
-                            // Extract agency
-                            const agencyMatch = cardText.match(/(?:Agency|Department):\s*([^\n]+)/i);
-                            const agency = agencyMatch ? agencyMatch[1].trim() : '';
-                            
-                            // Extract closing date
-                            const closingMatch = cardText.match(/Closing:\s*([^\n]+)/i);
-                            const closingDate = closingMatch ? closingMatch[1].trim() : '';
-                            
-                            // Extract location
-                            const locationMatch = cardText.match(/Location:\s*([^\n]+)/i);
-                            const location = locationMatch ? locationMatch[1].trim() : '';
-                            
-                            // Extract working arrangement
-                            const workingMatch = cardText.match(/Working arrangement:\s*([^\n]+)/i);
-                            const workingArrangement = workingMatch ? workingMatch[1].trim() : '';
-                            
-                            // Extract module
-                            const moduleMatch = cardText.match(/Module:\s*([^\n]+)/i);
-                            const module = moduleMatch ? moduleMatch[1].trim() : '';
-                            
-                            if (id || title) {
-                                cards.push({ 
-                                    url: href, 
-                                    title, 
-                                    id,
-                                    agency,
-                                    closingDate,
-                                    location,
-                                    workingArrangement,
-                                    module
-                                });
-                            }
-                        }
-                    }
-                });
+                // Find all links containing "View details"
+                const allLinks = Array.from(document.querySelectorAll('a'));
+                const viewDetailsLinks = allLinks.filter(a => 
+                    a.textContent?.toLowerCase().includes('view details')
+                );
                 
-                // Deduplicate by ID
-                return [...new Map(cards.map(c => [c.id || c.url, c])).values()];
-            });
-            
-            log.info(`Found ${cardData.length} opportunity cards on this page`);
-            
-            // Store card data and enqueue detail pages
-            for (const card of cardData.slice(0, maxOpportunities - opportunities.length)) {
-                if (opportunities.length >= maxOpportunities) break;
+                console.log(`Found ${viewDetailsLinks.length} View details links`);
                 
-                // Store basic data from card
-                await enqueueLinks({
-                    urls: [card.url],
-                    label: 'OPPORTUNITY_DETAIL',
-                    userData: { cardData: card }
-                });
-            }
-            
-            // Handle pagination - look for next button or page numbers
-            if (opportunities.length < maxOpportunities && cardData.length > 0) {
-                const nextButton = await page.$('button:has-text("Next"), a:has-text("Next"), [aria-label="Next page"], .pagination-next');
-                if (nextButton) {
-                    const isDisabled = await nextButton.evaluate(el => 
-                        el.hasAttribute('disabled') || 
-                        el.classList.contains('disabled') ||
-                        el.getAttribute('aria-disabled') === 'true'
-                    );
+                for (const link of viewDetailsLinks) {
+                    const href = link.getAttribute('href') || '';
+                    const fullUrl = href.startsWith('http') ? href : `https://buyict.gov.au${href}`;
                     
-                    if (!isDisabled) {
-                        log.info('Clicking next page...');
-                        await nextButton.click();
-                        await page.waitForTimeout(3000);
-                        
-                        // Re-run on the same page after pagination
-                        await enqueueLinks({
-                            urls: [page.url()],
-                            label: 'LISTING'
+                    // Find the parent card/container
+                    let card = link.parentElement;
+                    for (let i = 0; i < 10 && card; i++) {
+                        if (card.classList.contains('card') || 
+                            card.classList.contains('panel') ||
+                            card.getAttribute('class')?.includes('card') ||
+                            card.getAttribute('class')?.includes('opportunity')) {
+                            break;
+                        }
+                        card = card.parentElement;
+                    }
+                    
+                    if (!card) {
+                        card = link.parentElement?.parentElement?.parentElement || null;
+                    }
+                    
+                    const cardText = card?.textContent || '';
+                    
+                    // Extract ID (format like PCS-03324, LH-05368)
+                    const idMatch = cardText.match(/ID:\s*([A-Z]+-\d+)/i) || 
+                                   cardText.match(/([A-Z]{2,4}-\d{4,6})/);
+                    const id = idMatch ? idMatch[1] : '';
+                    
+                    // Extract title - first strong or h3/h4 in the card
+                    const titleEl = card?.querySelector('strong, h3, h4, h5');
+                    const title = titleEl?.textContent?.trim() || '';
+                    
+                    // Extract other fields
+                    const agencyMatch = cardText.match(/(?:Agency|Department)[:\s]+([^\n]+?)(?=Working|Location|Closing|Module|$)/i);
+                    const closingMatch = cardText.match(/Closing:\s*([^\n]+)/i);
+                    const locationMatch = cardText.match(/Location:\s*([^\n]+)/i);
+                    const workingMatch = cardText.match(/Working arrangement:\s*([^\n]+)/i);
+                    const moduleMatch = cardText.match(/Module:\s*([^\n]+)/i);
+                    const categoryMatch = cardText.match(/Category:\s*([^\n]+)/i);
+                    
+                    if (id || title) {
+                        results.push({
+                            url: fullUrl,
+                            title: title,
+                            id: id,
+                            agency: agencyMatch ? agencyMatch[1].trim() : '',
+                            closingDate: closingMatch ? closingMatch[1].trim() : '',
+                            location: locationMatch ? locationMatch[1].trim() : '',
+                            workingArrangement: workingMatch ? workingMatch[1].trim() : '',
+                            module: moduleMatch ? moduleMatch[1].trim() : '',
+                            category: categoryMatch ? categoryMatch[1].trim() : ''
                         });
                     }
                 }
-            }
-        }
-        
-        // Handle individual opportunity detail page
-        if (request.label === 'OPPORTUNITY_DETAIL' || url.includes('sp?id=opportunity_details')) {
-            log.info(`Scraping opportunity detail: ${url}`);
-            
-            await page.waitForLoadState('networkidle');
-            await page.waitForTimeout(3000);
-            
-            const cardData = request.userData?.cardData;
-            
-            // Extract detailed opportunity data
-            const opportunity = await page.evaluate(() => {
-                const getText = (selectors: string[]): string | null => {
-                    for (const selector of selectors) {
-                        const el = document.querySelector(selector);
-                        if (el?.textContent?.trim()) {
-                            return el.textContent.trim();
-                        }
-                    }
-                    return null;
-                };
                 
-                const getFieldValue = (label: string): string | null => {
-                    // Look in tables
-                    const rows = document.querySelectorAll('tr');
-                    for (const row of rows) {
-                        const cells = row.querySelectorAll('td, th');
-                        if (cells[0]?.textContent?.toLowerCase().includes(label.toLowerCase())) {
-                            return cells[1]?.textContent?.trim() || null;
-                        }
-                    }
-                    
-                    // Look in definition lists
-                    const dts = document.querySelectorAll('dt, .label, [class*="label"]');
-                    for (const dt of dts) {
-                        if (dt.textContent?.toLowerCase().includes(label.toLowerCase())) {
-                            const dd = dt.nextElementSibling;
-                            if (dd) return dd.textContent?.trim() || null;
-                        }
-                    }
-                    
-                    // Look in any labeled fields
-                    const allText = document.body.textContent || '';
-                    const regex = new RegExp(`${label}[:\\s]+([^\\n]+)`, 'i');
-                    const match = allText.match(regex);
-                    return match ? match[1].trim().substring(0, 200) : null;
-                };
-                
-                // Title
-                const title = getText(['h1', 'h2', '.page-title', '[class*="title"]']);
-                
-                // IDs and references
-                const rfqId = getFieldValue('rfq') || getFieldValue('id') || getFieldValue('reference');
-                
-                // Dates
-                const publishDate = getFieldValue('publish') || getFieldValue('posted');
-                const closingDate = getFieldValue('closing') || getFieldValue('close') || getFieldValue('deadline');
-                
-                // Entity/Agency
-                const buyerEntity = getFieldValue('agency') || getFieldValue('department') || getFieldValue('target');
-                
-                // Category
-                const category = getFieldValue('category') || getFieldValue('type');
-                
-                // Working arrangement
-                const workingArrangement = getFieldValue('working arrangement') || getFieldValue('engagement');
-                
-                // Location  
-                const location = getFieldValue('location') || getFieldValue('work location');
-                
-                // Module
-                const module = getFieldValue('module') || getFieldValue('panel');
-                
-                // Description - get the main content area
-                const descriptionEl = document.querySelector('.description, [class*="description"], .content, [class*="detail"]');
-                const description = descriptionEl?.textContent?.trim()?.substring(0, 5000) || null;
-                
-                // Criteria
-                const criteriaElements = document.querySelectorAll('li, .criteria, [class*="criteria"]');
-                const criteria: string[] = [];
-                criteriaElements.forEach((el) => {
-                    const text = el.textContent?.trim();
-                    if (text && text.length > 20 && text.length < 500) {
-                        criteria.push(text);
-                    }
+                // Deduplicate by ID or URL
+                const seen = new Set();
+                return results.filter(r => {
+                    const key = r.id || r.url;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
                 });
-                
-                // Contact info - extract emails
-                const allText = document.body.textContent || '';
-                const emailMatches = allText.match(/[\w.-]+@[\w.-]+\.(gov\.au|com\.au|org\.au|edu\.au|com|org|net)/gi) || [];
-                const contactText = [...new Set(emailMatches)].join(', ');
-                
-                // Attachments
-                const attachments = Array.from(document.querySelectorAll('a[href*=".pdf"], a[href*=".doc"], a[href*=".xlsx"], a[download]'))
-                    .map((link) => ({
-                        name: link.textContent?.trim() || 'Attachment',
-                        url: (link as HTMLAnchorElement).href,
-                        type: (link as HTMLAnchorElement).href.split('.').pop()?.split('?')[0] || 'unknown'
-                    }));
-                
-                return {
-                    title,
-                    rfqId,
-                    publishDate,
-                    closingDate,
-                    buyerEntity,
-                    category,
-                    workingArrangement,
-                    location,
-                    module,
-                    description,
-                    criteria: criteria.slice(0, 10),
-                    contactText,
-                    attachments
-                };
             });
             
-            // Combine with card data
-            const finalTitle = opportunity.title || cardData?.title || 'Unknown Opportunity';
-            const reference = cardData?.id || opportunity.rfqId || url.split('sys_id=')[1]?.split('&')[0] || '';
+            log.info(`Extracted ${cards.length} opportunity cards from listing`);
             
-            if (reference || finalTitle !== 'Unknown Opportunity') {
+            // Store opportunities from cards
+            for (const card of cards) {
+                if (opportunities.length >= maxOpportunities) break;
+                
                 const oppData: OpportunityData = {
-                    buyict_reference: reference,
-                    buyict_url: url,
-                    title: finalTitle,
-                    buyer_entity_raw: opportunity.buyerEntity || cardData?.agency || null,
-                    category: opportunity.category || null,
-                    description: opportunity.description,
-                    publish_date: opportunity.publishDate,
-                    closing_date: opportunity.closingDate || cardData?.closingDate || null,
-                    opportunity_status: 'Open', // Default since we're scraping open opps
-                    contact_text_raw: opportunity.contactText || null,
-                    rfq_id: opportunity.rfqId,
-                    target_sector: opportunity.buyerEntity || cardData?.agency || null,
+                    buyict_reference: card.id,
+                    buyict_url: card.url,
+                    title: card.title,
+                    buyer_entity_raw: card.agency || null,
+                    category: card.category || card.module || null,
+                    description: null,
+                    publish_date: null,
+                    closing_date: card.closingDate || null,
+                    opportunity_status: 'Open',
+                    contact_text_raw: null,
+                    rfq_id: card.id,
+                    target_sector: card.agency || null,
                     engagement_type: null,
                     estimated_value: null,
-                    location: opportunity.location || cardData?.location || null,
+                    location: card.location || null,
                     experience_level: null,
-                    working_arrangement: opportunity.workingArrangement || cardData?.workingArrangement || null,
-                    module: opportunity.module || cardData?.module || null,
+                    working_arrangement: card.workingArrangement || null,
+                    module: card.module || null,
                     key_duties: null,
-                    criteria: opportunity.criteria,
-                    attachments: opportunity.attachments
+                    criteria: [],
+                    attachments: []
                 };
                 
                 opportunities.push(oppData);
                 await Dataset.pushData(oppData);
-                log.info(`✓ Scraped: ${oppData.title} (${oppData.buyict_reference})`);
-            } else {
-                log.warning(`Could not extract data from ${url}`);
+                log.info(`✓ Added: ${oppData.title} (${oppData.buyict_reference})`);
             }
+            
+            // Handle pagination - click next page if available
+            if (opportunities.length < maxOpportunities) {
+                try {
+                    // Look for next page button (the > arrow in pagination)
+                    const nextButton = await page.$('[aria-label="Next page"], button:has-text(">"), a:has-text(">"):not(:has-text(">>"))');
+                    if (nextButton) {
+                        const isDisabled = await nextButton.evaluate(el => 
+                            el.hasAttribute('disabled') || 
+                            el.classList.contains('disabled') ||
+                            el.getAttribute('aria-disabled') === 'true'
+                        );
+                        
+                        if (!isDisabled) {
+                            log.info('Clicking next page...');
+                            await nextButton.click();
+                            await page.waitForLoadState('networkidle');
+                            await page.waitForTimeout(3000);
+                            
+                            // Process the next page by running the handler again
+                            // The crawler will handle this naturally via the queue
+                        }
+                    }
+                } catch (e) {
+                    log.warning('No more pages or pagination failed');
+                }
+            }
+        }
+        
+        // Handle individual opportunity detail page if we navigate to one
+        if (url.includes('opportunity_details') || url.includes('sys_id=')) {
+            log.info('On opportunity detail page');
+            // Extract detailed info here if needed
         }
     },
     
-    failedRequestHandler({ request, log }) {
-        log.error(`Request failed: ${request.url}`);
+    failedRequestHandler({ request, log, error }) {
+        log.error(`Request failed: ${request.url} - ${error.message}`);
     }
 });
 
-// Start crawling from the correct opportunities page URL
-console.log('Starting BuyICT scraper...');
-console.log(`Credentials provided: ${credentials?.email ? 'Yes' : 'No'}`);
-console.log(`Max opportunities: ${maxOpportunities}`);
-
-await crawler.run([`${BASE_URL}/sp?id=opportunities`]);
+// Start crawling
+await crawler.run([START_URL]);
 
 console.log(`\n=== Scraping Complete ===`);
 console.log(`Total opportunities scraped: ${opportunities.length}`);
