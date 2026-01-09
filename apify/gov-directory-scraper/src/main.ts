@@ -225,11 +225,11 @@ const crawler = new PlaywrightCrawler({
                     const addressEl = document.querySelector('a[href*="maps"], .field--name-field-address, [class*="address"]');
                     data.address = addressEl?.textContent?.trim() || null;
                     
-                    // Further Information fields
-                    const furtherInfo = document.querySelector('#further-information, .further-information, section:has(h2:contains("Further"))');
-                    if (furtherInfo || document.body) {
-                        const container = furtherInfo || document.body;
-                        const text = container.textContent || '';
+                    // Further Information fields - use valid CSS selectors (no :contains)
+                    const furtherInfo = document.querySelector('#further-information, .further-information, [id*="further"], section.further');
+                    // Always use document.body as fallback for text matching
+                    const container = furtherInfo || document.body;
+                    const text = container.textContent || '';
                         
                         // Type of Body
                         const typeMatch = text.match(/Type of Body[:\s]*([A-Z]\.?\s*[^\n]+)/i);
@@ -258,7 +258,6 @@ const crawler = new PlaywrightCrawler({
                         // Creation Date
                         const dateMatch = text.match(/Creation Date[:\s]*([^\n]+)/i);
                         data.creation_date = dateMatch ? dateMatch[1].trim() : null;
-                    }
                     
                     return data;
                 }, request.userData?.portfolio);
