@@ -103,6 +103,13 @@ export function AgencyDirectory() {
             requestsFinished?: number
             requestsFailed?: number
             requestsTotal?: number
+            requestsRetries?: number
+            crawlerRuntimeMillis?: number
+        }
+        usage?: {
+            ACTOR_COMPUTE_UNITS?: number
+            DATASET_READS?: number
+            DATASET_WRITES?: number
         }
     }
     const [runProgress, setRunProgress] = useState<RunProgress | null>(null)
@@ -124,7 +131,8 @@ export function AgencyDirectory() {
                 status: run.status,
                 startedAt: run.startedAt,
                 finishedAt: run.finishedAt,
-                stats: run.stats
+                stats: run.stats,
+                usage: run.usage
             })
 
             // Stop polling if run is finished
@@ -343,7 +351,7 @@ export function AgencyDirectory() {
                         </a>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                         <div className="bg-white/50 rounded-lg p-3">
                             <p className="text-blue-600 text-xs uppercase tracking-wide">Status</p>
                             <p className="text-blue-900 font-semibold">{runProgress.status}</p>
@@ -352,18 +360,36 @@ export function AgencyDirectory() {
                             <p className="text-blue-600 text-xs uppercase tracking-wide">Pages Processed</p>
                             <p className="text-blue-900 font-semibold">
                                 {runProgress.stats?.requestsFinished || 0}
-                                {runProgress.stats?.requestsFailed ? ` (${runProgress.stats.requestsFailed} failed)` : ''}
+                                {runProgress.stats?.requestsFailed ? (
+                                    <span className="text-red-500 text-xs ml-1">
+                                        ({runProgress.stats.requestsFailed} failed)
+                                    </span>
+                                ) : null}
+                            </p>
+                        </div>
+                        <div className="bg-white/50 rounded-lg p-3">
+                            <p className="text-blue-600 text-xs uppercase tracking-wide">Agencies Found</p>
+                            <p className="text-blue-900 font-semibold">
+                                {runProgress.usage?.DATASET_WRITES || 0}
                             </p>
                         </div>
                         <div className="bg-white/50 rounded-lg p-3">
                             <p className="text-blue-600 text-xs uppercase tracking-wide">Elapsed Time</p>
                             <p className="text-blue-900 font-semibold">
-                                {runProgress.startedAt ?
-                                    `${Math.round((Date.now() - new Date(runProgress.startedAt).getTime()) / 1000)}s`
-                                    : '--'}
+                                {runProgress.stats?.crawlerRuntimeMillis
+                                    ? `${Math.round(runProgress.stats.crawlerRuntimeMillis / 1000)}s`
+                                    : runProgress.startedAt
+                                        ? `${Math.round((Date.now() - new Date(runProgress.startedAt).getTime()) / 1000)}s`
+                                        : '--'}
                             </p>
                         </div>
                     </div>
+
+                    {runProgress.stats?.requestsRetries && runProgress.stats.requestsRetries > 0 && (
+                        <p className="text-blue-600 text-xs mt-2">
+                            Retried {runProgress.stats.requestsRetries} requests
+                        </p>
+                    )}
                 </div>
             )}
 
