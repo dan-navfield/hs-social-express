@@ -12,7 +12,9 @@ import {
   Contacts as BuyICTContacts,
   DepartmentMappings as BuyICTDepartmentMappings,
   Settings as BuyICTSettings,
-  OpportunityDetail as BuyICTOpportunityDetail
+  OpportunityDetail as BuyICTOpportunityDetail,
+  Organisations as BuyICTOrganisations,
+  OrganisationDetail as BuyICTOrganisationDetail
 } from '@/pages/buyict'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -164,6 +166,8 @@ export default function App() {
         <Route path="/buyict" element={<ProtectedRoute><BuyICTDashboard /></ProtectedRoute>} />
         <Route path="/buyict/opportunities" element={<ProtectedRoute><BuyICTOpportunities /></ProtectedRoute>} />
         <Route path="/buyict/opportunity/:id" element={<ProtectedRoute><BuyICTOpportunityDetail /></ProtectedRoute>} />
+        <Route path="/buyict/organisations" element={<ProtectedRoute><BuyICTOrganisations /></ProtectedRoute>} />
+        <Route path="/buyict/organisation/:id" element={<ProtectedRoute><BuyICTOrganisationDetail /></ProtectedRoute>} />
         <Route path="/buyict/contacts" element={<ProtectedRoute><BuyICTContacts /></ProtectedRoute>} />
         <Route path="/buyict/departments" element={<ProtectedRoute><BuyICTDepartmentMappings /></ProtectedRoute>} />
         <Route path="/buyict/settings" element={<ProtectedRoute><BuyICTSettings /></ProtectedRoute>} />
