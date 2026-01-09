@@ -46,6 +46,7 @@ export function Opportunities() {
     // Selection state
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
     const [isDeleting, setIsDeleting] = useState(false)
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
     // Extract unique departments from mappings
     const uniqueDepartments = useMemo(() => {
@@ -162,14 +163,13 @@ export function Opportunities() {
         }
     }
 
-    const handleDeleteSelected = async () => {
+    const handleDeleteSelected = () => {
         if (selectedIds.size === 0) return
+        setShowDeleteConfirm(true)
+    }
 
-        const confirmed = window.confirm(
-            `Are you sure you want to delete ${selectedIds.size} opportunit${selectedIds.size === 1 ? 'y' : 'ies'}?\n\nThis cannot be undone.`
-        )
-        if (!confirmed) return
-
+    const confirmDelete = async () => {
+        setShowDeleteConfirm(false)
         setIsDeleting(true)
         try {
             console.log('Deleting opportunities:', Array.from(selectedIds))
@@ -206,6 +206,41 @@ export function Opportunities() {
 
     return (
         <div className="p-8 bg-gray-50 min-h-screen">
+            {/* Delete Confirmation Modal */}
+            {showDeleteConfirm && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md mx-4">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                                <Trash2 className="w-6 h-6 text-red-600" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-900">Delete Opportunities</h3>
+                                <p className="text-sm text-gray-500">This action cannot be undone</p>
+                            </div>
+                        </div>
+                        <p className="text-gray-700 mb-6">
+                            Are you sure you want to delete <strong>{selectedIds.size}</strong> {selectedIds.size === 1 ? 'opportunity' : 'opportunities'}?
+                        </p>
+                        <div className="flex gap-3 justify-end">
+                            <Button
+                                variant="secondary"
+                                onClick={() => setShowDeleteConfirm(false)}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                variant="primary"
+                                onClick={confirmDelete}
+                                className="bg-red-600 hover:bg-red-700"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                                Delete
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {/* Header */}
             <div className="flex items-center gap-4 mb-6">
                 <Link to="/buyict" className="p-2 hover:bg-gray-200 rounded-lg transition-colors">
