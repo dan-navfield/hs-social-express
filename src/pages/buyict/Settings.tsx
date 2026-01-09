@@ -75,6 +75,7 @@ export function Settings() {
     const [buyictEmail, setBuyictEmail] = useState('')
     const [buyictPassword, setBuyictPassword] = useState('')
     const [maxOpportunities, setMaxOpportunities] = useState(100)
+    const [statusFilter, setStatusFilter] = useState<'live' | 'closing_soon' | 'closed'>('live')
     const [isSavingConfig, setIsSavingConfig] = useState(false)
     const [isTriggering, setIsTriggering] = useState(false)
     const [configSaved, setConfigSaved] = useState(false)
@@ -217,7 +218,7 @@ export function Settings() {
                     webhookUrl: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/buyict-sync-webhook`,
                     spaceId: currentSpace.id,
                     maxOpportunities,
-                    filterStatus: 'open'
+                    status: statusFilter // 'live' | 'closing_soon' | 'closed'
                 })
             })
 
@@ -722,6 +723,27 @@ export function Settings() {
                                                 max={500}
                                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                                             />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Status Filter
+                                            </label>
+                                            <select
+                                                value={statusFilter}
+                                                onChange={(e) => {
+                                                    setStatusFilter(e.target.value as 'live' | 'closing_soon' | 'closed')
+                                                    setConfigSaved(false)
+                                                }}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                            >
+                                                <option value="live">Live (Open)</option>
+                                                <option value="closing_soon">Closing Soon</option>
+                                                <option value="closed">Closed (~6,000 historical)</option>
+                                            </select>
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                {statusFilter === 'closed' && 'Warning: This will scrape historical data. Use max opportunities to limit.'}
+                                            </p>
                                         </div>
                                     </div>
 
