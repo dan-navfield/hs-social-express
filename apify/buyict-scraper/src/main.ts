@@ -252,7 +252,8 @@ const crawler = new PlaywrightCrawler({
     },
     
     failedRequestHandler({ request, log, error }) {
-        log.error(`Request failed: ${request.url} - ${error.message}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log.error(`Request failed: ${request.url} - ${errorMessage}`);
     }
 });
 
