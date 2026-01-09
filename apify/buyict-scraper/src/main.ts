@@ -180,40 +180,64 @@ const crawler = new PlaywrightCrawler({
                             return match ? match[1].trim() : '';
                         };
                         
-                        // Extract requirements section
+                        // Extract requirements section using text search
                         let requirements = '';
-                        const reqHeader = document.querySelector('h2:has-text("Requirements"), h3:has-text("Requirements")');
-                        if (reqHeader) {
-                            let sibling = reqHeader.nextElementSibling;
-                            const parts: string[] = [];
-                            while (sibling && !sibling.tagName.match(/^H[1-3]$/)) {
-                                parts.push(sibling.textContent?.trim() || '');
-                                sibling = sibling.nextElementSibling;
-                            }
-                            requirements = parts.join('\n').trim();
+                        const reqIndex = pageText.indexOf('Requirements');
+                        if (reqIndex > -1) {
+                            // Get text from Requirements to Criteria (or end)
+                            const criteriaIndex = pageText.indexOf('Criteria', reqIndex);
+                            const endIndex = criteriaIndex > reqIndex ? criteriaIndex : reqIndex + 3000;
+                            requirements = pageText.substring(reqIndex + 12, endIndex).trim();
                         }
                         
-                        // Extract criteria
+                        // Extract criteria using text patterns
                         const criteria: string[] = [];
-                        const criteriaSection = document.querySelector('.criteria, [class*="criteria"]');
-                        if (criteriaSection) {
-                            const items = criteriaSection.querySelectorAll('li, .criterion');
-                            items.forEach(item => {
-                                const text = item.textContent?.trim();
-                                if (text) criteria.push(text);
-                            });
+                        const criteriaMatch = pageText.match(/Essential criteria[\s\S]*?(?=Send a feedback|$)/i);
+                        if (criteriaMatch) {
+                            const lines = criteriaMatch[0].split('\n').filter(l => l.trim().length > 10);
+                            criteria.push(...lines.slice(0, 10)); // First 10 criteria lines
                         }
                         
-                        // Get all table rows or definition list items for structured data
+                        // Get all table data using simpler approach
                         const data: Record<string, string> = {};
                         
-                        // Try table format
-                        const rows = document.querySelectorAll('table tr, .field-row, dl dt');
+                        // ALL fields visible on BuyICT detail page
+                        const patterns = [
+                            // Basic info
+                            { key: 'rfq_type', regex: /RFQ type[\s:]+([^\n]+)/i },
+                            { key: 'rfq_id', regex: /RFQ ID[\s:]+([^\n]+)/i },
+                            { key: 'rfq_published_date', regex: /RFQ published date[\s:]+([^\n]+)/i },
+                            { key: 'deadline_for_asking_questions', regex: /Deadline for asking questions[\s:]+([^\n]+)/i },
+                            { key: 'rfq_closing_date', regex: /RFQ closing date[\s:]+([^\n]+)/i },
+                            { key: 'buyer', regex: /^Buyer[\s:]+([^\n]+)/im },
+                            { key: 'buyer_contact', regex: /Buyer contact[\s:]+([^\n]+)/i },
+                            // Contract details  
+                            { key: 'estimated_start_date', regex: /Estimated start date[\s:]+([^\n]+)/i },
+                            { key: 'initial_contract_duration', regex: /Initial contract duration[\s:]+([^\n]+)/i },
+                            { key: 'extension_term', regex: /Extension term[\s:]+([^\n]+)/i },
+                            { key: 'extension_term_details', regex: /Extension term details[\s:]+([^\n]+)/i },
+                            { key: 'number_of_extensions', regex: /Number of extensions[\s:]+([^\n]+)/i },
+                            // Work details
+                            { key: 'working_arrangements', regex: /Working arrangements?[\s:]+([^\n]+)/i },
+                            { key: 'industry_briefing', regex: /Industry briefing[\s:]+([^\n]+)/i },
+                            { key: 'location', regex: /Location[\s:]+([^\n]+)/i },
+                            // Module info (from card/listing)
+                            { key: 'module', regex: /Module[\s:]+([^\n]+)/i },
+                            { key: 'category', regex: /Category[\s:]+([^\n]+)/i },
+                        ];
+                        
+                        patterns.forEach(p => {
+                            const m = pageText.match(p.regex);
+                            if (m) data[p.key] = m[1].trim();
+                        });
+                        
+                        // Also try table format for any missed data
+                        const rows = document.querySelectorAll('table tr');
                         rows.forEach(row => {
-                            const cells = row.querySelectorAll('td, dd');
-                            const label = row.querySelector('th, dt')?.textContent?.trim();
+                            const cells = row.querySelectorAll('td');
+                            const label = row.querySelector('th')?.textContent?.trim();
                             const value = cells[0]?.textContent?.trim();
-                            if (label && value) {
+                            if (label && value && !data[label.toLowerCase().replace(/\s+/g, '_')]) {
                                 data[label.toLowerCase().replace(/\s+/g, '_')] = value;
                             }
                         });
