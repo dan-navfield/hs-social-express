@@ -59,6 +59,7 @@ const {
 } = input;
 
 const opportunities: OpportunityData[] = [];
+const sentIds = new Set<string>(); // Track what we've already sent
 const seenIds = new Set<string>();
 const BASE_URL = 'https://buyict.gov.au';
 const START_URL = `${BASE_URL}/sp?id=opportunities`;
@@ -66,6 +67,50 @@ const START_URL = `${BASE_URL}/sp?id=opportunities`;
 console.log('=== BuyICT Scraper Starting ===');
 console.log(`Target URL: ${START_URL}`);
 console.log(`Max opportunities: ${maxOpportunities}`);
+
+// Batch size for incremental saves
+const BATCH_SIZE = 20;
+let lastSentIndex = 0;
+
+// Helper function to send a batch of opportunities to webhook
+async function sendBatch(batch: OpportunityData[], isFinal: boolean = false) {
+    if (!webhookUrl || batch.length === 0) return;
+    
+    try {
+        console.log(`📤 Sending batch of ${batch.length} opportunities (${isFinal ? 'final' : 'incremental'})...`);
+        const response = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                spaceId,
+                opportunities: batch,
+                scrapedAt: new Date().toISOString(),
+                totalCount: batch.length,
+                source: 'apify-buyict-scraper',
+                isFinal
+            })
+        });
+        
+        if (!response.ok) {
+            console.error(`Batch webhook failed: ${response.status}`);
+        } else {
+            const result = await response.json();
+            console.log(`✓ Batch saved: ${result.stats?.opportunitiesAdded || 0} added, ${result.stats?.opportunitiesUpdated || 0} updated`);
+            // Mark these as sent
+            batch.forEach(opp => sentIds.add(opp.buyict_reference));
+        }
+    } catch (error) {
+        console.error('Batch webhook error:', error);
+    }
+}
+
+// Helper to check and send if batch is ready
+async function checkAndSendBatch() {
+    const unsent = opportunities.filter(opp => !sentIds.has(opp.buyict_reference));
+    if (unsent.length >= BATCH_SIZE) {
+        await sendBatch(unsent.slice(0, BATCH_SIZE));
+    }
+}
 
 // Helper to extract text next to a label
 function extractLabelValue(text: string, label: string): string {
@@ -303,6 +348,8 @@ const crawler = new PlaywrightCrawler({
                     opportunities.push(oppData);
                     await Dataset.pushData(oppData);
                     
+                    // Check if we should send a batch
+                    await checkAndSendBatch();
                 } catch (e) {
                     log.warning(`Failed to fetch ${item.id}: ${e}`);
                     // Still add with basic info
@@ -341,6 +388,9 @@ const crawler = new PlaywrightCrawler({
                     });
                 }
                 
+                // Check if we should send a batch (even for failed ones)
+                await checkAndSendBatch();
+                
                 // Small delay between requests
                 await page.waitForTimeout(500);
             }
@@ -359,33 +409,21 @@ await crawler.run([START_URL]);
 
 console.log(`\n=== Scraping Complete ===`);
 console.log(`Total opportunities: ${opportunities.length}`);
+console.log(`Already sent: ${sentIds.size}`);
 
-// Send to webhook
-if (webhookUrl && opportunities.length > 0) {
-    console.log(`Sending ${opportunities.length} to webhook...`);
-    
-    try {
-        const response = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                spaceId,
-                opportunities,
-                scrapedAt: new Date().toISOString(),
-                totalCount: opportunities.length,
-                source: 'apify-buyict-scraper'
-            })
-        });
-        
-        if (!response.ok) {
-            console.error(`Webhook failed: ${response.status}`);
-        } else {
-            const result = await response.json();
-            console.log('✓ Webhook success:', result);
-        }
-    } catch (error) {
-        console.error('Webhook error:', error);
-    }
+// Send any remaining unsent opportunities
+const unsent = opportunities.filter(opp => !sentIds.has(opp.buyict_reference));
+if (unsent.length > 0) {
+    console.log(`Sending final batch of ${unsent.length} remaining opportunities...`);
+    await sendBatch(unsent, true);
+} else if (sentIds.size > 0) {
+    console.log('✓ All opportunities already saved via incremental batches');
+} else if (opportunities.length === 0) {
+    console.log('No opportunities found');
 }
+
+console.log(`\n=== Summary ===`);
+console.log(`Total scraped: ${opportunities.length}`);
+console.log(`Total saved: ${sentIds.size}`);
 
 await Actor.exit();
