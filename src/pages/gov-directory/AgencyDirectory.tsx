@@ -13,7 +13,9 @@ import {
     Loader2,
     Globe,
     Phone,
-    Mail
+    Mail,
+    AlertCircle,
+    CheckCircle2
 } from 'lucide-react'
 import { Button } from '@/components/ui'
 import { useSpaceStore } from '@/stores/spaceStore'
@@ -86,23 +88,100 @@ export function AgencyDirectory() {
         }
     }
 
-    const handleSyncDirectory = async () => {
+    const [syncError, setSyncError] = useState<string | null>(null)
+    const [syncSuccess, setSyncSuccess] = useState<string | null>(null)
+    const [showTokenModal, setShowTokenModal] = useState(false)
+    const [tokenInput, setTokenInput] = useState('')
+
+    // Run progress tracking
+    interface RunProgress {
+        runId: string
+        status: string
+        startedAt: string
+        finishedAt?: string
+        stats?: {
+            requestsFinished?: number
+            requestsFailed?: number
+            requestsTotal?: number
+        }
+    }
+    const [runProgress, setRunProgress] = useState<RunProgress | null>(null)
+    const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null)
+
+    // Poll for run status
+    const pollRunStatus = async (runId: string, token: string) => {
+        try {
+            const response = await fetch(
+                `https://api.apify.com/v2/actor-runs/${runId}?token=${token}`
+            )
+            if (!response.ok) return
+
+            const data = await response.json()
+            const run = data.data
+
+            setRunProgress({
+                runId,
+                status: run.status,
+                startedAt: run.startedAt,
+                finishedAt: run.finishedAt,
+                stats: run.stats
+            })
+
+            // Stop polling if run is finished
+            if (run.status === 'SUCCEEDED' || run.status === 'FAILED' || run.status === 'ABORTED') {
+                if (pollingInterval) {
+                    clearInterval(pollingInterval)
+                    setPollingInterval(null)
+                }
+                setIsSyncing(false)
+
+                if (run.status === 'SUCCEEDED') {
+                    setSyncSuccess(`Sync completed! Processed ${run.stats?.requestsFinished || 0} pages.`)
+                    fetchAgencies() // Refresh the list
+                } else {
+                    setSyncError(`Sync ${run.status.toLowerCase()}. Check Apify console for details.`)
+                }
+            }
+        } catch (err) {
+            console.error('Failed to poll run status:', err)
+        }
+    }
+
+    // Cleanup polling on unmount
+    useEffect(() => {
+        return () => {
+            if (pollingInterval) clearInterval(pollingInterval)
+        }
+    }, [pollingInterval])
+    const handleSyncDirectory = async (providedToken?: string) => {
         if (!currentSpace?.id) return
 
+        // If no token provided and none saved, show modal
+        const savedToken = localStorage.getItem('apify_token')
+        if (!providedToken && !savedToken) {
+            setShowTokenModal(true)
+            return
+        }
+
+        const apifyToken = providedToken || savedToken
+        if (!apifyToken) {
+            setShowTokenModal(true)
+            return
+        }
+
         setIsSyncing(true)
+        setSyncError(null)
+        setSyncSuccess(null)
 
         try {
-            // Get Apify token from localStorage or prompt
-            const apifyToken = localStorage.getItem('apify_token') || prompt('Enter your Apify API token:')
-            if (!apifyToken) {
-                alert('Apify token required to sync directory')
-                setIsSyncing(false)
-                return
-            }
+            // Save token for future use
             localStorage.setItem('apify_token', apifyToken)
 
+            // The actor name - using Hs Social Express 1 for gov directory
+            const actorName = 'verifiable_hare~hs-social-express-1'
+
             // Trigger the Apify actor
-            const response = await fetch(`https://api.apify.com/v2/acts/verifiable_hare~gov-directory-scraper/runs?token=${apifyToken}`, {
+            const response = await fetch(`https://api.apify.com/v2/acts/${actorName}/runs?token=${apifyToken}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -115,13 +194,23 @@ export function AgencyDirectory() {
             })
 
             if (!response.ok) {
-                throw new Error(`Apify error: ${await response.text()}`)
+                const errorText = await response.text()
+                // Check if token is invalid - clear it and ask for new one
+                if (response.status === 401) {
+                    localStorage.removeItem('apify_token')
+                    throw new Error(`Invalid API token. Click "Sync Directory" again to enter a new token. (Get your token from Apify Console → Settings → Integrations)`)
+                }
+                // Check if actor doesn't exist
+                if (response.status === 404) {
+                    throw new Error(`Actor not found. Please create an Apify actor pointing to the apify/gov-directory-scraper folder in your GitHub repo.`)
+                }
+                throw new Error(`Apify error (${response.status}): ${errorText}`)
             }
 
             const result = await response.json()
             console.log('Gov directory scraper started:', result)
 
-            alert(`Directory sync started! Run ID: ${result.data?.id}\nThis will take a few minutes. Refresh to see new agencies.`)
+            setSyncSuccess(`Directory sync started! Run ID: ${result.data?.id}. This will take a few minutes.`)
 
             // Poll for completion and refresh
             setTimeout(() => {
@@ -131,7 +220,7 @@ export function AgencyDirectory() {
 
         } catch (error) {
             console.error('Failed to start sync:', error)
-            alert(`Failed to start sync: ${error}`)
+            setSyncError(String(error))
             setIsSyncing(false)
         }
     }
@@ -182,7 +271,7 @@ export function AgencyDirectory() {
                     </div>
 
                     <Button
-                        onClick={handleSyncDirectory}
+                        onClick={() => handleSyncDirectory()}
                         disabled={isSyncing}
                     >
                         {isSyncing ? (
@@ -199,6 +288,28 @@ export function AgencyDirectory() {
                     </Button>
                 </div>
             </div>
+
+            {/* Sync Status Messages */}
+            {syncError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                        <p className="text-red-800 font-medium">Sync Failed</p>
+                        <p className="text-red-700 text-sm mt-1">{syncError}</p>
+                    </div>
+                    <button onClick={() => setSyncError(null)} className="ml-auto text-red-400 hover:text-red-600">×</button>
+                </div>
+            )}
+            {syncSuccess && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6 flex items-start gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                        <p className="text-green-800 font-medium">Sync Started</p>
+                        <p className="text-green-700 text-sm mt-1">{syncSuccess}</p>
+                    </div>
+                    <button onClick={() => setSyncSuccess(null)} className="ml-auto text-green-400 hover:text-green-600">×</button>
+                </div>
+            )}
 
             {/* Search & Filters */}
             <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
@@ -273,7 +384,7 @@ export function AgencyDirectory() {
                             : 'Try adjusting your search or filters'}
                     </p>
                     {agencies.length === 0 && (
-                        <Button onClick={handleSyncDirectory}>
+                        <Button onClick={() => handleSyncDirectory()}>
                             <RefreshCw className="w-4 h-4" />
                             Sync Directory
                         </Button>
@@ -352,6 +463,59 @@ export function AgencyDirectory() {
                             </div>
                         </div>
                     ))}
+                </div>
+            )}
+
+            {/* Token Input Modal */}
+            {showTokenModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-xl">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                            Enter Apify API Token
+                        </h3>
+                        <p className="text-sm text-gray-600 mb-4">
+                            Get your token from{' '}
+                            <a
+                                href="https://console.apify.com/settings/integrations"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-purple-600 hover:underline"
+                            >
+                                Apify Console → Settings → Integrations
+                            </a>
+                        </p>
+                        <input
+                            type="text"
+                            value={tokenInput}
+                            onChange={(e) => setTokenInput(e.target.value)}
+                            placeholder="apify_api_xxxxxxxxxx"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 mb-4 font-mono text-sm"
+                            autoFocus
+                        />
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                onClick={() => {
+                                    setShowTokenModal(false)
+                                    setTokenInput('')
+                                }}
+                                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+                            >
+                                Cancel
+                            </button>
+                            <Button
+                                onClick={() => {
+                                    if (tokenInput.trim()) {
+                                        setShowTokenModal(false)
+                                        handleSyncDirectory(tokenInput.trim())
+                                        setTokenInput('')
+                                    }
+                                }}
+                                disabled={!tokenInput.trim()}
+                            >
+                                Start Sync
+                            </Button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
