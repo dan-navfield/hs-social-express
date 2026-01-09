@@ -1,0 +1,69 @@
+{
+    "title": "BuyICT Scraper Input",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "credentials": {
+            "title": "BuyICT Credentials",
+            "type": "object",
+            "description": "Your BuyICT login credentials",
+            "editor": "json",
+            "prefill": {
+                "email": "",
+                "password": ""
+            },
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "title": "Email",
+                    "description": "Your BuyICT login email"
+                },
+                "password": {
+                    "type": "string",
+                    "title": "Password",
+                    "description": "Your BuyICT login password",
+                    "isSecret": true
+                }
+            },
+            "required": [
+                "email",
+                "password"
+            ]
+        },
+        "webhookUrl": {
+            "title": "Webhook URL",
+            "type": "string",
+            "description": "URL to POST scraped data to (e.g., your Supabase Edge Function)",
+            "editor": "textfield",
+            "prefill": ""
+        },
+        "spaceId": {
+            "title": "Space ID",
+            "type": "string",
+            "description": "Your workspace ID for multi-tenant data isolation",
+            "editor": "textfield"
+        },
+        "maxOpportunities": {
+            "title": "Max Opportunities",
+            "type": "integer",
+            "description": "Maximum number of opportunities to scrape",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 500
+        },
+        "filterStatus": {
+            "title": "Filter by Status",
+            "type": "string",
+            "description": "Filter opportunities by status",
+            "enum": [
+                "open",
+                "closed",
+                "all"
+            ],
+            "default": "open"
+        }
+    },
+    "required": [
+        "credentials"
+    ]
+}

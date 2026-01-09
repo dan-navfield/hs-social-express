@@ -9,7 +9,12 @@ import {
     CheckCircle2,
     AlertCircle,
     Trash2,
-    RefreshCw
+    RefreshCw,
+    Key,
+    Play,
+    ExternalLink,
+    Clock,
+    Loader2
 } from 'lucide-react'
 import { Button } from '@/components/ui'
 import { ConnectionStatus, SyncStatus, UploadModal } from '@/components/buyict'
@@ -31,14 +36,14 @@ const connectionMethods: {
             description: 'Manually upload CSV exports from BuyICT. Best for occasional syncs with full control.',
             icon: Upload,
             available: true,
-            recommended: true,
         },
         {
             id: 'api',
-            name: 'API Integration',
-            description: 'Connect via official BuyICT API for automated syncing. Requires API credentials.',
+            name: 'Apify Scraper',
+            description: 'Automated scraping via Apify. Requires your BuyICT credentials and Apify API token.',
             icon: Globe,
-            available: false, // Not yet implemented
+            available: true,
+            recommended: true,
         },
         {
             id: 'browser_sync',
@@ -64,12 +69,38 @@ export function Settings() {
     const [showUploadModal, setShowUploadModal] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
 
+    // Apify configuration state
+    const [apifyToken, setApifyToken] = useState('')
+    const [buyictEmail, setBuyictEmail] = useState('')
+    const [buyictPassword, setBuyictPassword] = useState('')
+    const [maxOpportunities, setMaxOpportunities] = useState(100)
+    const [isSavingConfig, setIsSavingConfig] = useState(false)
+    const [isTriggering, setIsTriggering] = useState(false)
+    const [configSaved, setConfigSaved] = useState(false)
+    const [triggerError, setTriggerError] = useState<string | null>(null)
+
     useEffect(() => {
         if (currentSpace?.id) {
             fetchIntegration(currentSpace.id)
             fetchSyncJobs(currentSpace.id)
         }
     }, [currentSpace?.id, fetchIntegration, fetchSyncJobs])
+
+    // Load saved config from localStorage
+    useEffect(() => {
+        const savedConfig = localStorage.getItem('buyict_apify_config')
+        if (savedConfig) {
+            try {
+                const config = JSON.parse(savedConfig)
+                setApifyToken(config.apifyToken || '')
+                setBuyictEmail(config.buyictEmail || '')
+                setMaxOpportunities(config.maxOpportunities || 100)
+                setConfigSaved(true)
+            } catch (e) {
+                console.error('Failed to parse saved config:', e)
+            }
+        }
+    }, [])
 
     const handleCreateIntegration = async (method: BuyICTConnectionMethod) => {
         if (!currentSpace?.id) return
@@ -88,6 +119,69 @@ export function Settings() {
         if (currentSpace?.id) {
             fetchIntegration(currentSpace.id)
             fetchSyncJobs(currentSpace.id)
+        }
+    }
+
+    const handleSaveApifyConfig = () => {
+        const config = {
+            apifyToken,
+            buyictEmail,
+            maxOpportunities
+        }
+        localStorage.setItem('buyict_apify_config', JSON.stringify(config))
+        // Note: Password is NOT saved for security - user must enter each time
+        setConfigSaved(true)
+        setIsSavingConfig(false)
+    }
+
+    const handleTriggerSync = async () => {
+        if (!apifyToken || !buyictEmail || !buyictPassword || !currentSpace?.id) {
+            setTriggerError('Please fill in all required fields')
+            return
+        }
+
+        setIsTriggering(true)
+        setTriggerError(null)
+
+        try {
+            // Trigger the Apify actor via API
+            const response = await fetch(`https://api.apify.com/v2/acts/~buyict-scraper/runs?token=${apifyToken}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    credentials: {
+                        email: buyictEmail,
+                        password: buyictPassword
+                    },
+                    webhookUrl: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/buyict-sync-webhook`,
+                    spaceId: currentSpace.id,
+                    maxOpportunities,
+                    filterStatus: 'open'
+                })
+            })
+
+            if (!response.ok) {
+                const error = await response.text()
+                throw new Error(`Apify API error: ${error}`)
+            }
+
+            const result = await response.json()
+            console.log('Apify run started:', result)
+
+            // Refresh sync jobs to show the new running job
+            setTimeout(() => {
+                if (currentSpace?.id) {
+                    fetchSyncJobs(currentSpace.id)
+                }
+            }, 2000)
+
+        } catch (err) {
+            console.error('Failed to trigger sync:', err)
+            setTriggerError(err instanceof Error ? err.message : 'Failed to trigger sync')
+        } finally {
+            setIsTriggering(false)
         }
     }
 
@@ -193,15 +287,34 @@ export function Settings() {
                                     Upload CSV
                                 </Button>
                             )}
+
+                            {integration.connection_method === 'api' && (
+                                <Button
+                                    onClick={handleTriggerSync}
+                                    disabled={isTriggering || !apifyToken || !buyictEmail || !buyictPassword}
+                                >
+                                    {isTriggering ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            Syncing...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Play className="w-4 h-4" />
+                                            Sync Now
+                                        </>
+                                    )}
+                                </Button>
+                            )}
                         </div>
 
                         {/* Error display */}
-                        {integration.last_sync_error && (
+                        {(integration.last_sync_error || triggerError) && (
                             <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
                                 <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
                                 <div>
-                                    <p className="font-medium text-red-800">Last Sync Error</p>
-                                    <p className="text-sm text-red-700 mt-1">{integration.last_sync_error}</p>
+                                    <p className="font-medium text-red-800">Error</p>
+                                    <p className="text-sm text-red-700 mt-1">{triggerError || integration.last_sync_error}</p>
                                 </div>
                             </div>
                         )}
@@ -242,16 +355,152 @@ export function Settings() {
                         )}
 
                         {integration.connection_method === 'api' && (
-                            <div className="flex items-start gap-4">
-                                <div className="p-3 bg-gray-100 rounded-xl">
-                                    <Globe className="w-6 h-6 text-gray-600" />
+                            <div className="space-y-6">
+                                <div className="flex items-start gap-4">
+                                    <div className="p-3 bg-gray-100 rounded-xl">
+                                        <Globe className="w-6 h-6 text-gray-600" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <h4 className="font-medium text-gray-900">Apify Scraper Integration</h4>
+                                        <p className="text-sm text-gray-500 mt-1">
+                                            Automated scraping of BuyICT opportunities using Apify.
+                                            Configure your credentials below to enable syncing.
+                                        </p>
+
+                                        <a
+                                            href="https://console.apify.com/actors"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1 text-sm text-purple-600 hover:text-purple-700 mt-2"
+                                        >
+                                            <ExternalLink className="w-3.5 h-3.5" />
+                                            Open Apify Console
+                                        </a>
+                                    </div>
                                 </div>
-                                <div>
-                                    <h4 className="font-medium text-gray-900">API Integration</h4>
-                                    <p className="text-sm text-gray-500 mt-1">
-                                        Connected via official BuyICT API.
-                                    </p>
-                                    {/* API configuration would go here */}
+
+                                {/* Apify Configuration Form */}
+                                <div className="border-t border-gray-200 pt-6 space-y-4">
+                                    <h5 className="font-medium text-gray-900 flex items-center gap-2">
+                                        <Key className="w-4 h-4" />
+                                        API Credentials
+                                    </h5>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Apify API Token
+                                            </label>
+                                            <input
+                                                type="password"
+                                                value={apifyToken}
+                                                onChange={(e) => {
+                                                    setApifyToken(e.target.value)
+                                                    setConfigSaved(false)
+                                                }}
+                                                placeholder="apify_api_..."
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                            />
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                Find this in your Apify account settings
+                                            </p>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Max Opportunities
+                                            </label>
+                                            <input
+                                                type="number"
+                                                value={maxOpportunities}
+                                                onChange={(e) => {
+                                                    setMaxOpportunities(parseInt(e.target.value) || 100)
+                                                    setConfigSaved(false)
+                                                }}
+                                                min={1}
+                                                max={500}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                                        <h6 className="font-medium text-amber-800 mb-2">BuyICT Login Credentials</h6>
+                                        <p className="text-sm text-amber-700 mb-3">
+                                            The scraper needs to log into BuyICT to access opportunities.
+                                            Password is NOT saved - you must enter it each time for security.
+                                        </p>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    BuyICT Email
+                                                </label>
+                                                <input
+                                                    type="email"
+                                                    value={buyictEmail}
+                                                    onChange={(e) => {
+                                                        setBuyictEmail(e.target.value)
+                                                        setConfigSaved(false)
+                                                    }}
+                                                    placeholder="your@email.gov.au"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    BuyICT Password
+                                                </label>
+                                                <input
+                                                    type="password"
+                                                    value={buyictPassword}
+                                                    onChange={(e) => setBuyictPassword(e.target.value)}
+                                                    placeholder="Enter password"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                                />
+                                                <p className="text-xs text-gray-500 mt-1">
+                                                    Not saved - enter each sync
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-3">
+                                        <Button
+                                            variant="secondary"
+                                            onClick={handleSaveApifyConfig}
+                                            disabled={!apifyToken || !buyictEmail}
+                                        >
+                                            {configSaved ? (
+                                                <>
+                                                    <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                                    Saved
+                                                </>
+                                            ) : (
+                                                'Save Config'
+                                            )}
+                                        </Button>
+
+                                        <span className="text-sm text-gray-500">
+                                            {configSaved && 'API token and email saved locally'}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Deployment Instructions */}
+                                <div className="border-t border-gray-200 pt-6">
+                                    <h5 className="font-medium text-gray-900 mb-3">Deploy the Scraper to Apify</h5>
+                                    <div className="p-4 bg-gray-50 rounded-lg">
+                                        <ol className="text-sm text-gray-700 space-y-2 list-decimal list-inside">
+                                            <li>Go to <a href="https://console.apify.com/actors" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:underline">Apify Console → Actors</a></li>
+                                            <li>Click "Create new" → "From scratch"</li>
+                                            <li>Name it <code className="px-1.5 py-0.5 bg-gray-200 rounded text-xs">buyict-scraper</code></li>
+                                            <li>Upload the files from <code className="px-1.5 py-0.5 bg-gray-200 rounded text-xs">apify/buyict-scraper/</code></li>
+                                            <li>Click "Build" and wait for completion</li>
+                                            <li>Come back here and click "Sync Now"!</li>
+                                        </ol>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -268,7 +517,7 @@ export function Settings() {
                                     </p>
                                     <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                                         <p className="text-sm text-amber-700">
-                                            ⚠️ Use only with explicit BuyICT permission. Unauthorised automated access may violate terms of service.
+                                            ⚠️ Coming soon. Use Apify Scraper for automated syncing.
                                         </p>
                                     </div>
                                 </div>

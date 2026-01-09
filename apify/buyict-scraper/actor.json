@@ -1,0 +1,9 @@
+{
+    "actorSpecification": 1,
+    "name": "buyict-scraper",
+    "title": "BuyICT Opportunities Scraper",
+    "description": "Scrapes procurement opportunities from BuyICT.gov.au including contact details, deadlines, and requirements.",
+    "version": "1.0.0",
+    "buildTag": "latest",
+    "dockerfile": "./Dockerfile"
+}
