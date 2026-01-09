@@ -16,6 +16,7 @@ import {
   Organisations as BuyICTOrganisations,
   OrganisationDetail as BuyICTOrganisationDetail
 } from '@/pages/buyict'
+import { AgencyDirectory, AgencyDetail } from '@/pages/gov-directory'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuthStore()
@@ -171,6 +172,10 @@ export default function App() {
         <Route path="/buyict/contacts" element={<ProtectedRoute><BuyICTContacts /></ProtectedRoute>} />
         <Route path="/buyict/departments" element={<ProtectedRoute><BuyICTDepartmentMappings /></ProtectedRoute>} />
         <Route path="/buyict/settings" element={<ProtectedRoute><BuyICTSettings /></ProtectedRoute>} />
+
+        {/* Government Directory Routes */}
+        <Route path="/gov-directory" element={<ProtectedRoute><AgencyDirectory /></ProtectedRoute>} />
+        <Route path="/gov-directory/:id" element={<ProtectedRoute><AgencyDetail /></ProtectedRoute>} />
       </Routes>
     </BrowserRouter>
   )

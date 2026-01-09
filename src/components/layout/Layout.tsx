@@ -9,6 +9,7 @@ import {
     ChevronRight,
     LogOut,
     Binoculars,
+    Building2,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { useSpaceStore } from '@/stores/spaceStore'
@@ -21,6 +22,7 @@ interface LayoutProps {
 const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard', isGlobal: true },
     { path: '/buyict', icon: Binoculars, label: 'BuyICT Snoop', isGlobal: true },
+    { path: '/gov-directory', icon: Building2, label: 'Gov Directory', isGlobal: true },
     { path: '/brand-studio', icon: Database, label: 'Brand Studio', isGlobal: false },
     { path: '/campaigns', icon: Megaphone, label: 'Campaigns', isGlobal: false },
     { path: '/posts', icon: FileText, label: 'All Posts', isGlobal: false },
