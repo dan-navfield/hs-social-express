@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import {
     Search,
     Filter,
@@ -36,6 +36,7 @@ export function Opportunities() {
         setOpportunityFilters,
     } = useBuyICTStore()
 
+    const navigate = useNavigate()
     const [searchParams] = useSearchParams()
     const [searchTerm, setSearchTerm] = useState('')
     const [showFilters, setShowFilters] = useState(false)
@@ -171,13 +172,23 @@ export function Opportunities() {
 
         setIsDeleting(true)
         try {
-            const { error } = await supabase
+            console.log('Deleting opportunities:', Array.from(selectedIds))
+
+            const { data, error } = await supabase
                 .from('buyict_opportunities')
                 .delete()
                 .in('id', Array.from(selectedIds))
+                .select()
 
-            if (error) throw error
+            console.log('Delete result - data:', data, 'error:', error)
 
+            if (error) {
+                console.error('Supabase error:', error)
+                throw error
+            }
+
+            // Success!
+            console.log(`Successfully deleted ${selectedIds.size} opportunities`)
             setSelectedIds(new Set())
             // Refresh list
             if (currentSpace?.id) {
@@ -185,7 +196,7 @@ export function Opportunities() {
             }
         } catch (err) {
             console.error('Failed to delete opportunities:', err)
-            alert('Failed to delete opportunities')
+            alert(`Failed to delete opportunities: ${err instanceof Error ? err.message : 'Unknown error'}`)
         } finally {
             setIsDeleting(false)
         }
@@ -438,11 +449,11 @@ export function Opportunities() {
             ) : (
                 <div className="space-y-4">
                     {sortedOpportunities.map((opportunity) => (
-                        <div key={opportunity.id} className="relative">
+                        <div key={opportunity.id} className="relative flex items-stretch">
                             {/* Checkbox */}
                             <button
                                 onClick={(e) => toggleSelect(opportunity.id, e)}
-                                className="absolute left-4 top-1/2 -translate-y-1/2 z-10 p-1 hover:bg-gray-100 rounded"
+                                className="flex-shrink-0 w-12 flex items-center justify-center hover:bg-gray-100 rounded-l-lg z-10"
                             >
                                 {selectedIds.has(opportunity.id) ? (
                                     <CheckSquare className="w-5 h-5 text-purple-600" />
@@ -450,12 +461,12 @@ export function Opportunities() {
                                     <Square className="w-5 h-5 text-gray-400" />
                                 )}
                             </button>
-                            <Link
-                                to={`/buyict/opportunity/${opportunity.id}`}
-                                className="block pl-12"
+                            <div
+                                className="flex-1 cursor-pointer"
+                                onClick={() => navigate(`/buyict/opportunity/${opportunity.id}`)}
                             >
                                 <OpportunityCard opportunity={opportunity} />
-                            </Link>
+                            </div>
                         </div>
                     ))}
                 </div>
