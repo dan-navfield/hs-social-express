@@ -194,9 +194,19 @@ const crawler = new PlaywrightCrawler({
                 const agencyData = await page.evaluate((portfolioFromNav) => {
                     const data: Record<string, string | null> = {};
                     
-                    // Name - usually in h1
-                    const h1 = document.querySelector('h1');
-                    data.name = h1?.textContent?.trim() || null;
+                    // Name - get the SECOND h1 (first is site header "Directory", second is agency name)
+                    const h1s = document.querySelectorAll('h1');
+                    // If there's more than one h1, use the second. Otherwise use the first.
+                    const agencyH1 = h1s.length > 1 ? h1s[1] : h1s[0];
+                    data.name = agencyH1?.textContent?.trim() || null;
+                    
+                    // Fallback: if name is "Directory" or null, try the page title
+                    if (!data.name || data.name === 'Directory') {
+                        const titleParts = document.title?.split('|');
+                        if (titleParts && titleParts.length > 0) {
+                            data.name = titleParts[0].trim();
+                        }
+                    }
                     
                     // Portfolio tag (the colored label)
                     const portfolioTag = document.querySelector('.field--name-field-portfolio a, .badge, [class*="portfolio"]');
