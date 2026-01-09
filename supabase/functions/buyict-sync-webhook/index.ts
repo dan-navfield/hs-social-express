@@ -44,6 +44,17 @@ interface OpportunityPayload {
     key_duties?: string | null
     criteria?: string[]
     attachments: { name: string; url: string; type: string }[]
+    // Extended fields
+    rfq_type?: string | null
+    deadline_for_questions?: string | null
+    buyer_contact?: string | null
+    estimated_start_date?: string | null
+    initial_contract_duration?: string | null
+    extension_term?: string | null
+    extension_term_details?: string | null
+    number_of_extensions?: string | null
+    industry_briefing?: string | null
+    requirements?: string | null
 }
 
 interface WebhookPayload {
@@ -184,7 +195,7 @@ serve(async (req) => {
         // Process each opportunity
         for (const opp of payload.opportunities) {
             try {
-                // Prepare opportunity data
+                // Prepare opportunity data with ALL fields
                 const oppData = {
                     space_id: payload.spaceId,
                     buyict_reference: opp.buyict_reference,
@@ -192,12 +203,28 @@ serve(async (req) => {
                     title: opp.title,
                     buyer_entity_raw: opp.buyer_entity_raw,
                     category: opp.category,
-                    description: opp.description,
+                    description: opp.description || opp.requirements,
                     publish_date: parseDate(opp.publish_date),
                     closing_date: parseDate(opp.closing_date),
                     opportunity_status: opp.opportunity_status || 'Open',
-                    contact_text_raw: opp.contact_text_raw,
+                    contact_text_raw: opp.contact_text_raw || opp.buyer_contact,
                     attachments: opp.attachments || [],
+                    // Extended fields
+                    rfq_type: opp.rfq_type || opp.engagement_type,
+                    rfq_id: opp.rfq_id,
+                    deadline_for_questions: opp.deadline_for_questions,
+                    buyer_contact: opp.buyer_contact,
+                    estimated_start_date: opp.estimated_start_date,
+                    initial_contract_duration: opp.initial_contract_duration,
+                    extension_term: opp.extension_term,
+                    extension_term_details: opp.extension_term_details,
+                    number_of_extensions: opp.number_of_extensions,
+                    industry_briefing: opp.industry_briefing,
+                    requirements: opp.requirements,
+                    criteria: opp.criteria || [],
+                    location: opp.location,
+                    working_arrangement: opp.working_arrangement,
+                    engagement_type: opp.engagement_type,
                     last_synced_at: new Date().toISOString(),
                     sync_job_id: syncJob?.id
                 }
