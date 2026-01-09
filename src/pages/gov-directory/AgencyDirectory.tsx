@@ -87,12 +87,53 @@ export function AgencyDirectory() {
     }
 
     const handleSyncDirectory = async () => {
+        if (!currentSpace?.id) return
+
         setIsSyncing(true)
-        // TODO: Implement directory.gov.au scraper trigger
-        setTimeout(() => {
+
+        try {
+            // Get Apify token from localStorage or prompt
+            const apifyToken = localStorage.getItem('apify_token') || prompt('Enter your Apify API token:')
+            if (!apifyToken) {
+                alert('Apify token required to sync directory')
+                setIsSyncing(false)
+                return
+            }
+            localStorage.setItem('apify_token', apifyToken)
+
+            // Trigger the Apify actor
+            const response = await fetch(`https://api.apify.com/v2/acts/verifiable_hare~gov-directory-scraper/runs?token=${apifyToken}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    timeout: 1800, // 30 minutes
+                    memoryMbytes: 2048,
+                    webhookUrl: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gov-directory-sync`,
+                    spaceId: currentSpace.id,
+                    maxAgencies: 500
+                })
+            })
+
+            if (!response.ok) {
+                throw new Error(`Apify error: ${await response.text()}`)
+            }
+
+            const result = await response.json()
+            console.log('Gov directory scraper started:', result)
+
+            alert(`Directory sync started! Run ID: ${result.data?.id}\nThis will take a few minutes. Refresh to see new agencies.`)
+
+            // Poll for completion and refresh
+            setTimeout(() => {
+                fetchAgencies()
+                setIsSyncing(false)
+            }, 60000) // Check after 1 minute
+
+        } catch (error) {
+            console.error('Failed to start sync:', error)
+            alert(`Failed to start sync: ${error}`)
             setIsSyncing(false)
-            alert('Directory sync coming soon! This will scrape directory.gov.au')
-        }, 1000)
+        }
     }
 
     // Filter agencies
