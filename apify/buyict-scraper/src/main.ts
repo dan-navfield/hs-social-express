@@ -77,7 +77,7 @@ function extractLabelValue(text: string, label: string): string {
 const crawler = new PlaywrightCrawler({
     headless: true,
     maxRequestsPerCrawl: maxOpportunities + 20,
-    navigationTimeoutSecs: 120,
+    navigationTimeoutSecs: 60,
     requestHandlerTimeoutSecs: 900, // 15 minutes total
     
     async requestHandler({ page, request, log }) {
@@ -259,9 +259,10 @@ const crawler = new PlaywrightCrawler({
                             workingArrangement: extractValue('Working arrangement') || data['working_arrangements'],
                             industryBriefing: extractValue('Industry briefing') || data['industry_briefing'],
                             location: extractValue('Location') || data['location'],
-                            requirements: requirements || pageText.substring(pageText.indexOf('Requirements'), pageText.indexOf('Criteria')).slice(0, 2000),
-                            criteria: criteria,
-                            fullText: pageText.substring(0, 5000) // For debugging
+                            requirements: requirements.substring(0, 1500), // Limit to save memory
+                            criteria: criteria.slice(0, 5), // Only first 5 criteria
+                            module: data['module'] || '',
+                            category: data['category'] || ''
                         };
                     });
                     

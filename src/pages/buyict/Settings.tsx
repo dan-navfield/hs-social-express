@@ -201,6 +201,9 @@ export function Settings() {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
+                    // Run settings - increase timeout and memory
+                    timeout: 600, // 10 minutes timeout
+                    memoryMbytes: 2048, // 2GB memory instead of 1GB default
                     // Credentials are optional - only needed to respond to opportunities, not view them
                     ...(buyictEmail && buyictPassword ? {
                         credentials: {
