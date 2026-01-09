@@ -106,7 +106,7 @@ export function AgencyDirectory() {
         }
     }
     const [runProgress, setRunProgress] = useState<RunProgress | null>(null)
-    const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null)
+    const [pollingInterval, setPollingInterval] = useState<ReturnType<typeof setInterval> | null>(null)
 
     // Poll for run status
     const pollRunStatus = async (runId: string, token: string) => {
@@ -208,15 +208,28 @@ export function AgencyDirectory() {
             }
 
             const result = await response.json()
+            const runId = result.data?.id
             console.log('Gov directory scraper started:', result)
 
-            setSyncSuccess(`Directory sync started! Run ID: ${result.data?.id}. This will take a few minutes.`)
+            setSyncSuccess(`Directory sync started! Run ID: ${runId}. Monitoring progress...`)
 
-            // Poll for completion and refresh
-            setTimeout(() => {
-                fetchAgencies()
-                setIsSyncing(false)
-            }, 60000) // Check after 1 minute
+            // Start polling for run status
+            if (runId) {
+                setRunProgress({
+                    runId,
+                    status: 'RUNNING',
+                    startedAt: new Date().toISOString()
+                })
+
+                // Initial poll
+                pollRunStatus(runId, apifyToken)
+
+                // Set up interval polling every 5 seconds
+                const interval = setInterval(() => {
+                    pollRunStatus(runId, apifyToken)
+                }, 5000)
+                setPollingInterval(interval)
+            }
 
         } catch (error) {
             console.error('Failed to start sync:', error)
@@ -308,6 +321,49 @@ export function AgencyDirectory() {
                         <p className="text-green-700 text-sm mt-1">{syncSuccess}</p>
                     </div>
                     <button onClick={() => setSyncSuccess(null)} className="ml-auto text-green-400 hover:text-green-600">×</button>
+                </div>
+            )}
+
+            {/* Detailed Progress Display */}
+            {runProgress && runProgress.status === 'RUNNING' && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                    <div className="flex items-center gap-3 mb-3">
+                        <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+                        <div>
+                            <p className="text-blue-800 font-medium">Directory Sync in Progress</p>
+                            <p className="text-blue-600 text-sm">Run ID: {runProgress.runId}</p>
+                        </div>
+                        <a
+                            href={`https://console.apify.com/actors/JDSkf5mYeNpEUNbdJ/runs/${runProgress.runId}#log`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-auto text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
+                        >
+                            View in Apify <ExternalLink className="w-3 h-3" />
+                        </a>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                        <div className="bg-white/50 rounded-lg p-3">
+                            <p className="text-blue-600 text-xs uppercase tracking-wide">Status</p>
+                            <p className="text-blue-900 font-semibold">{runProgress.status}</p>
+                        </div>
+                        <div className="bg-white/50 rounded-lg p-3">
+                            <p className="text-blue-600 text-xs uppercase tracking-wide">Pages Processed</p>
+                            <p className="text-blue-900 font-semibold">
+                                {runProgress.stats?.requestsFinished || 0}
+                                {runProgress.stats?.requestsFailed ? ` (${runProgress.stats.requestsFailed} failed)` : ''}
+                            </p>
+                        </div>
+                        <div className="bg-white/50 rounded-lg p-3">
+                            <p className="text-blue-600 text-xs uppercase tracking-wide">Elapsed Time</p>
+                            <p className="text-blue-900 font-semibold">
+                                {runProgress.startedAt ?
+                                    `${Math.round((Date.now() - new Date(runProgress.startedAt).getTime()) / 1000)}s`
+                                    : '--'}
+                            </p>
+                        </div>
+                    </div>
                 </div>
             )}
 
