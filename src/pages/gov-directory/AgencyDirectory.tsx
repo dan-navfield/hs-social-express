@@ -194,7 +194,7 @@ export function AgencyDirectory() {
             localStorage.setItem('apify_token', apifyToken)
 
             // The actor name - using Hs Social Express 1 for gov directory
-            const actorName = 'verifiable_hare~hs-social-express-1'
+            const actorName = 'verifiable_hare~hs-social-express---gov-agency-scraper'
 
             // Trigger the Apify actor with proper input structure
             const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
@@ -353,7 +353,7 @@ export function AgencyDirectory() {
                             <p className="text-blue-600 text-sm">Run ID: {runProgress.runId}</p>
                         </div>
                         <a
-                            href={`https://console.apify.com/actors/JDSkf5mYeNpEUNbdJ/runs/${runProgress.runId}#log`}
+                            href={`https://console.apify.com/view/runs/${runProgress.runId}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="ml-auto text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
