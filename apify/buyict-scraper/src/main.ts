@@ -286,49 +286,44 @@ const crawler = new PlaywrightCrawler({
                             criteria.push(...criteriaLines.slice(0, 5));
                         }
                         
-                        // Get title - try multiple strategies
-                        // The h1 often shows the site name, so we need the opportunity-specific title
-                        // Usually the title is the first substantial line on the page
+                        // Get title from h1 element
+                        // Based on actual page structure, h1 contains the opportunity title
                         let title = '';
                         
-                        // Known error messages to skip
-                        const errorMessages = [
-                            'You need to be logged in',
-                            'invited to respond',
-                            'Access denied',
-                            'Not authorized'
-                        ];
+                        // Strategy 1: Get h1 (which should be the opportunity title)
+                        const h1 = document.querySelector('h1');
+                        if (h1 && h1.textContent) {
+                            const h1Text = h1.textContent.trim();
+                            // Make sure it's not just "BuyICT" branding
+                            if (h1Text.length > 5 && h1Text !== 'BuyICT') {
+                                title = h1Text;
+                            }
+                        }
                         
-                        // Check if page has an error message (requires login)
-                        const hasError = errorMessages.some(msg => pageText.includes(msg));
-                        
-                        if (!hasError) {
-                            // Strategy 1: Look for the first h2 (h1 is usually "BuyICT" site title)
+                        // Strategy 2: Try h2 if h1 didn't work
+                        if (!title) {
                             const h2 = document.querySelector('h2');
                             if (h2 && h2.textContent && h2.textContent.trim().length > 10) {
-                                const h2Text = h2.textContent.trim();
-                                // Make sure it's not an error message
-                                if (!errorMessages.some(msg => h2Text.includes(msg))) {
-                                    title = h2Text;
-                                }
+                                title = h2.textContent.trim();
                             }
-                            
-                            // Strategy 2: First line of inner text that looks like a title
-                            if (!title) {
-                                // First substantial text line (not short labels or site branding)
-                                for (const line of lines.slice(0, 20)) {
-                                    if (line.length > 15 && 
-                                        line !== 'BuyICT' && 
-                                        !line.toLowerCase().includes('logged in') &&
-                                        !line.toLowerCase().includes('invited') &&
-                                        !line.toLowerCase().includes('respond to this') &&
-                                        !Object.keys(fieldLabels).includes(line)) {
-                                        title = line;
-                                        break;
-                                    }
+                        }
+                        
+                        // Strategy 3: First substantial text line
+                        if (!title) {
+                            for (const line of lines.slice(0, 20)) {
+                                if (line.length > 15 && 
+                                    line !== 'BuyICT' && 
+                                    !line.toLowerCase().includes('logged in') &&
+                                    !line.toLowerCase().includes('invited') &&
+                                    !line.toLowerCase().includes('respond to this') &&
+                                    !Object.keys(fieldLabels).includes(line)) {
+                                    title = line;
+                                    break;
                                 }
                             }
                         }
+                        
+                        console.log('Extracted title from page:', title);
                         
                         // Debug: Log found fields
                         console.log('Extracted title:', title);
