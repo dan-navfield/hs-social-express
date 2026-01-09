@@ -252,9 +252,9 @@ const crawler = new PlaywrightCrawler({
                         }
                         
                         // Extract email addresses from page
-                        const emailMatches = pageText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.gov\.au/g) || [];
-                        if (emailMatches.length > 0) {
-                            data['buyer_contact'] = emailMatches[0]; // First .gov.au email
+                        const emailMatches = pageText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.gov\.au/g);
+                        if (emailMatches && emailMatches.length > 0) {
+                            data['buyer_contact'] = emailMatches[0] as string;
                         }
                         
                         // Extract requirements section
