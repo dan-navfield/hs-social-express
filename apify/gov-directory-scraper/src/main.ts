@@ -47,7 +47,10 @@ const BASE_URL = 'https://www.directory.gov.au';
 const PORTFOLIOS_URL = `${BASE_URL}/portfolios`;
 
 console.log('=== Gov Directory Scraper Starting ===');
+console.log('Input received:', JSON.stringify(input, null, 2));
 console.log(`Max agencies: ${maxAgencies}`);
+console.log(`Webhook URL: ${webhookUrl || 'NOT PROVIDED'}`);
+console.log(`Space ID: ${spaceId || 'NOT PROVIDED'}`);
 if (portfolioFilter) console.log(`Portfolio filter: ${portfolioFilter}`);
 
 // Send batch to webhook

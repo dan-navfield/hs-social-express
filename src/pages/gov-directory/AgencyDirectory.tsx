@@ -126,6 +126,14 @@ export function AgencyDirectory() {
             const data = await response.json()
             const run = data.data
 
+            // Debug: log the full response to see stats structure
+            console.log('Apify run status:', {
+                status: run.status,
+                stats: run.stats,
+                usage: run.usage,
+                fullRun: run
+            })
+
             setRunProgress({
                 runId,
                 status: run.status,
@@ -188,14 +196,17 @@ export function AgencyDirectory() {
             // The actor name - using Hs Social Express 1 for gov directory
             const actorName = 'verifiable_hare~hs-social-express-1'
 
-            // Trigger the Apify actor
+            // Trigger the Apify actor with proper input structure
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+            const webhookUrl = `${supabaseUrl}/functions/v1/gov-directory-sync`
+
+            console.log('Starting Apify actor with webhook:', webhookUrl)
+
             const response = await fetch(`https://api.apify.com/v2/acts/${actorName}/runs?token=${apifyToken}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    timeout: 1800, // 30 minutes
-                    memoryMbytes: 2048,
-                    webhookUrl: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gov-directory-sync`,
+                    webhookUrl: webhookUrl,
                     spaceId: currentSpace.id,
                     maxAgencies: 500
                 })
