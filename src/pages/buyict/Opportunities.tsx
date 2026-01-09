@@ -13,16 +13,21 @@ import {
     Trash2,
     CheckSquare,
     Square,
-    Loader2
+    Loader2,
+    List,
+    LayoutGrid,
+    Clock,
+    ExternalLink
 } from 'lucide-react'
 import { Button, Input } from '@/components/ui'
-import { OpportunityCard } from '@/components/buyict'
+import { OpportunityCard, DepartmentBadge } from '@/components/buyict'
 import { useBuyICTStore } from '@/stores/buyictStore'
 import { useSpaceStore } from '@/stores/spaceStore'
 import { supabase } from '@/lib/supabase'
 
 type SortField = 'closing_date' | 'title' | 'created_at'
 type SortOrder = 'asc' | 'desc'
+type ViewMode = 'table' | 'card'
 
 export function Opportunities() {
     const { currentSpace } = useSpaceStore()
@@ -42,11 +47,13 @@ export function Opportunities() {
     const [showFilters, setShowFilters] = useState(false)
     const [sortField, setSortField] = useState<SortField>('closing_date')
     const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
+    const [viewMode, setViewMode] = useState<ViewMode>('table')
 
     // Selection state
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
     const [isDeleting, setIsDeleting] = useState(false)
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
 
     // Extract unique departments from mappings
     const uniqueDepartments = useMemo(() => {
@@ -306,6 +313,24 @@ export function Opportunities() {
                             )}
                         </button>
                     </div>
+
+                    {/* View toggle */}
+                    <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden">
+                        <button
+                            onClick={() => setViewMode('table')}
+                            className={`p-2 ${viewMode === 'table' ? 'bg-purple-100 text-purple-600' : 'hover:bg-gray-50 text-gray-500'}`}
+                            title="Table view"
+                        >
+                            <List className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => setViewMode('card')}
+                            className={`p-2 ${viewMode === 'card' ? 'bg-purple-100 text-purple-600' : 'hover:bg-gray-50 text-gray-500'}`}
+                            title="Card view"
+                        >
+                            <LayoutGrid className="w-4 h-4" />
+                        </button>
+                    </div>
                 </div>
 
                 {/* Expanded filters */}
@@ -481,7 +506,93 @@ export function Opportunities() {
                         </Button>
                     )}
                 </div>
+            ) : viewMode === 'table' ? (
+                /* Compact Table View */
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <table className="w-full text-sm">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                            <tr>
+                                <th className="w-10 px-3 py-3"></th>
+                                <th className="text-left px-3 py-3 font-medium text-gray-600">Reference</th>
+                                <th className="text-left px-3 py-3 font-medium text-gray-600">Title</th>
+                                <th className="text-left px-3 py-3 font-medium text-gray-600">Agency</th>
+                                <th className="text-left px-3 py-3 font-medium text-gray-600">Closes</th>
+                                <th className="text-left px-3 py-3 font-medium text-gray-600">Status</th>
+                                <th className="w-10 px-3 py-3"></th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {sortedOpportunities.map((opportunity) => {
+                                const getClosingStatus = () => {
+                                    if (!opportunity.closing_date) return { status: 'unknown', label: 'N/A', color: 'text-gray-400' }
+                                    const now = new Date()
+                                    const closing = new Date(opportunity.closing_date)
+                                    const diffDays = Math.ceil((closing.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+                                    if (diffDays < 0) return { status: 'closed', label: 'Closed', color: 'text-gray-500 bg-gray-100' }
+                                    if (diffDays === 0) return { status: 'today', label: 'Today!', color: 'text-red-600 bg-red-100' }
+                                    if (diffDays <= 3) return { status: 'urgent', label: `${diffDays}d`, color: 'text-orange-600 bg-orange-100' }
+                                    if (diffDays <= 7) return { status: 'soon', label: `${diffDays}d`, color: 'text-amber-600 bg-amber-100' }
+                                    return { status: 'open', label: `${diffDays}d`, color: 'text-emerald-600 bg-emerald-100' }
+                                }
+                                const closingStatus = getClosingStatus()
+
+                                return (
+                                    <tr
+                                        key={opportunity.id}
+                                        className="hover:bg-gray-50 cursor-pointer group"
+                                        onClick={() => navigate(`/buyict/opportunity/${opportunity.id}`)}
+                                    >
+                                        <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                                            <button onClick={(e) => toggleSelect(opportunity.id, e)}>
+                                                {selectedIds.has(opportunity.id) ? (
+                                                    <CheckSquare className="w-4 h-4 text-purple-600" />
+                                                ) : (
+                                                    <Square className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
+                                                )}
+                                            </button>
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            <span className="font-mono text-xs text-gray-500">{opportunity.buyict_reference}</span>
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            <span className="font-medium text-gray-900 line-clamp-1 max-w-xs">{opportunity.title}</span>
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            <span className="text-gray-600 text-xs line-clamp-1 max-w-[180px]">
+                                                {opportunity.canonical_department || opportunity.buyer_entity_raw || '-'}
+                                            </span>
+                                        </td>
+                                        <td className="px-3 py-2 whitespace-nowrap">
+                                            <span className="text-gray-600 text-xs">
+                                                {opportunity.closing_date ? new Date(opportunity.closing_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '-'}
+                                            </span>
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            <span className={`text-xs px-2 py-0.5 rounded-full ${closingStatus.color}`}>
+                                                {closingStatus.label}
+                                            </span>
+                                        </td>
+                                        <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                                            {opportunity.buyict_url && (
+                                                <a
+                                                    href={opportunity.buyict_url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="text-blue-500 hover:text-blue-600"
+                                                    title="View on BuyICT"
+                                                >
+                                                    <ExternalLink className="w-4 h-4" />
+                                                </a>
+                                            )}
+                                        </td>
+                                    </tr>
+                                )
+                            })}
+                        </tbody>
+                    </table>
+                </div>
             ) : (
+                /* Card View */
                 <div className="space-y-4">
                     {sortedOpportunities.map((opportunity) => (
                         <div key={opportunity.id} className="relative flex items-stretch">
