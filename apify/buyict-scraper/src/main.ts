@@ -53,6 +53,8 @@ interface ActorInput {
     maxOpportunities?: number;
     existingReferences?: string[]; // For incremental sync - skip these
     incrementalMode?: boolean; // If true, only fetch new opportunities
+    status?: 'live' | 'closing_soon' | 'closed'; // Status filter
+    startPage?: number; // Start from this page (for pagination across multiple runs)
 }
 
 await Actor.init();
@@ -64,17 +66,33 @@ const {
     maxOpportunities = 200,
     existingReferences = [],
     incrementalMode = false,
+    status = 'live',
+    startPage = 1,
 } = input;
 
 // Build set of existing references for fast lookup
 const existingRefs = new Set(existingReferences);
 console.log(`Incremental mode: ${incrementalMode}, existing references: ${existingRefs.size}`);
+console.log(`Status filter: ${status}, starting from page: ${startPage}`);
 
 const opportunities: OpportunityData[] = [];
 const sentIds = new Set<string>(); // Track what we've already sent
 const seenIds = new Set<string>();
 const BASE_URL = 'https://buyict.gov.au';
-const START_URL = `${BASE_URL}/sp?id=opportunities`;
+
+// Build URL based on status filter
+function getOpportunitiesUrl(): string {
+    // BuyICT uses URL parameters for filtering
+    const baseUrl = `${BASE_URL}/sp?id=opportunities`;
+    if (status === 'closed') {
+        return `${baseUrl}&opportunities_status=Closed`;
+    } else if (status === 'closing_soon') {
+        return `${baseUrl}&opportunities_status=Closing%20Soon`;
+    }
+    return baseUrl; // Default is "Live"
+}
+
+const START_URL = getOpportunitiesUrl();
 
 console.log('=== BuyICT Scraper Starting ===');
 console.log(`Target URL: ${START_URL}`);
@@ -149,6 +167,22 @@ const crawler = new PlaywrightCrawler({
             const opportunityUrls: { url: string; id: string; title: string }[] = [];
             let pageNum = 1;
             let hasMorePages = true;
+            
+            // Skip to starting page if needed
+            if (startPage > 1) {
+                log.info(`Skipping to page ${startPage}...`);
+                for (let skip = 1; skip < startPage; skip++) {
+                    const nextBtn = await page.$('button[aria-label="Next page"], .pagination-next, [data-pagination-next]');
+                    if (nextBtn) {
+                        await nextBtn.click();
+                        await page.waitForTimeout(3000);
+                    } else {
+                        log.warning(`Could not skip to page ${startPage}, only ${skip} pages found`);
+                        break;
+                    }
+                }
+                pageNum = startPage;
+            }
             
             // Collect all opportunity URLs from all pages
             while (hasMorePages && opportunityUrls.length < maxOpportunities) {
@@ -418,7 +452,7 @@ const crawler = new PlaywrightCrawler({
                         description: details.requirements || details.keyDuties || null,
                         publish_date: details.publishDate || null,
                         closing_date: details.closingDate || null,
-                        opportunity_status: 'Open',
+                        opportunity_status: status === 'closed' ? 'Closed' : status === 'closing_soon' ? 'Closing Soon' : 'Open',
                         contact_text_raw: details.buyerContact || null,
                         rfq_id: details.rfqId || item.id,
                         target_sector: null,
@@ -463,7 +497,7 @@ const crawler = new PlaywrightCrawler({
                         description: null,
                         publish_date: null,
                         closing_date: null,
-                        opportunity_status: 'Open',
+                        opportunity_status: status === 'closed' ? 'Closed' : status === 'closing_soon' ? 'Closing Soon' : 'Open',
                         contact_text_raw: null,
                         rfq_id: item.id,
                         target_sector: null,
