@@ -4,12 +4,19 @@
  * Scrapes procurement opportunities from BuyICT.gov.au
  * No login required - opportunities are publicly viewable
  * 
- * Page structure discovered:
- * - Cards use class: a.opportunities-card__link
- * - Title in: .opportunities-card__title strong
- * - ID in: .opportunities-card__number (format "ID: PCS-03324")
- * - Agency in: .ng-binding div
- * - Pagination: ul.pagination li a
+ * Page structure:
+ * <a class="opportunities-card__link" href="?id=opportunity_details&table=...&sys_id=..." 
+ *    aria-label="View details for [Title], ID: [REF]">
+ *   <div class="opportunities-card">
+ *     <div class="opportunities-card__title">
+ *       <strong>[Title]</strong>
+ *       <div class="opportunities-card__number">ID: [REF]</div>
+ *     </div>
+ *     <div class="ng-binding">[Agency]</div>
+ *     [More content with Location, Working arrangement, Closing, Module]
+ *     <div class="opportunities-card__footer">View details</div>
+ *   </div>
+ * </a>
  */
 
 import { Actor } from 'apify';
@@ -55,6 +62,7 @@ const {
 } = input;
 
 const opportunities: OpportunityData[] = [];
+const seenIds = new Set<string>();
 const BASE_URL = 'https://buyict.gov.au';
 const START_URL = `${BASE_URL}/sp?id=opportunities`;
 
@@ -64,13 +72,14 @@ console.log(`Max opportunities: ${maxOpportunities}`);
 
 const crawler = new PlaywrightCrawler({
     headless: true,
-    maxRequestsPerCrawl: maxOpportunities + 100,
+    maxRequestsPerCrawl: 200,
     navigationTimeoutSecs: 120,
-    requestHandlerTimeoutSecs: 180,
+    requestHandlerTimeoutSecs: 300,
     
     async requestHandler({ page, request, log }) {
         const url = request.url;
-        log.info(`Processing: ${url}`);
+        const pageNum = request.userData?.pageNum || 1;
+        log.info(`Processing page ${pageNum}: ${url}`);
         
         // Wait for page to fully load
         await page.waitForLoadState('networkidle');
@@ -78,17 +87,18 @@ const crawler = new PlaywrightCrawler({
         
         // Check if this is the listing page
         if (url.includes('sp?id=opportunities') && !url.includes('opportunity_details')) {
-            log.info('On opportunities listing page');
+            log.info(`On opportunities listing page (page ${pageNum})`);
             
             // Wait for the specific card elements
             try {
-                await page.waitForSelector('a.opportunities-card__link', { timeout: 15000 });
-                log.info('Found opportunity cards');
+                await page.waitForSelector('a.opportunities-card__link', { timeout: 20000 });
+                log.info('Opportunity cards loaded');
             } catch (e) {
-                log.warning('Could not find opportunity cards with expected selector');
+                log.warning('Could not find opportunity cards');
+                return;
             }
             
-            // Extract all opportunity cards using the discovered structure
+            // Extract all opportunity cards
             const cards = await page.evaluate(() => {
                 const results: {
                     url: string;
@@ -103,80 +113,100 @@ const crawler = new PlaywrightCrawler({
                     status: string;
                 }[] = [];
                 
-                // Select all card links with the specific class
                 const cardLinks = document.querySelectorAll('a.opportunities-card__link');
-                console.log(`Found ${cardLinks.length} card links`);
                 
                 cardLinks.forEach((link) => {
                     const href = link.getAttribute('href') || '';
                     const fullUrl = href.startsWith('http') ? href : `https://buyict.gov.au/sp${href}`;
                     
-                    // Get aria-label for full details
+                    // Get aria-label which contains title and ID
                     const ariaLabel = link.getAttribute('aria-label') || '';
                     
-                    // Extract title from .opportunities-card__title strong
-                    const titleEl = link.querySelector('.opportunities-card__title strong');
+                    // Extract title from strong element
+                    const titleEl = link.querySelector('strong');
                     const title = titleEl?.textContent?.trim() || '';
                     
-                    // Extract ID from .opportunities-card__number
-                    const idEl = link.querySelector('.opportunities-card__number');
-                    const idText = idEl?.textContent?.trim() || '';
-                    const idMatch = idText.match(/ID:\s*([A-Z]+-\d+)/i);
-                    const id = idMatch ? idMatch[1] : '';
+                    // Extract ID from card number div
+                    const idEl = link.querySelector('.opportunities-card__number, [class*="number"]');
+                    let id = '';
+                    if (idEl) {
+                        const idText = idEl.textContent?.trim() || '';
+                        const idMatch = idText.match(/ID:\s*([A-Z]+-\d+)/i) || idText.match(/([A-Z]{2,4}-\d{4,6})/);
+                        id = idMatch ? idMatch[1] : '';
+                    }
                     
-                    // Extract agency - it's in a div with ng-binding class after the title
-                    const cardText = link.textContent || '';
+                    // If no ID from element, try aria-label
+                    if (!id && ariaLabel) {
+                        const ariaIdMatch = ariaLabel.match(/ID:\s*([A-Z]+-\d+)/i);
+                        if (ariaIdMatch) id = ariaIdMatch[1];
+                    }
                     
-                    // Look for common patterns in the card text
-                    const agencyMatch = ariaLabel.match(/Department|Agency|Council|Government/i) ?
-                        '' : // Will extract from card content instead
-                        '';
+                    // Get entire card text for regex extraction
+                    const fullText = link.textContent || '';
                     
-                    // Get all text nodes to extract structured data
-                    const allDivs = link.querySelectorAll('div');
+                    // Extract using regex patterns on full text
+                    const closingMatch = fullText.match(/Closing:\s*([^,\n]+(?:Canberra time)?)/i);
+                    const locationMatch = fullText.match(/Location:\s*([A-Z,\s]+?)(?=Working|Closing|Module|$)/i);
+                    const workingMatch = fullText.match(/Working arrangement:\s*([A-Za-z]+)/i);
+                    const moduleMatch = fullText.match(/Module:\s*([^\n]+?)(?=Category|$)/i);
+                    const categoryMatch = fullText.match(/Category:\s*([^\n]+)/i);
+                    
+                    // Extract agency - usually right after title, before other fields
+                    // Look for government entity names
                     let agency = '';
-                    let closingDate = '';
-                    let location = '';
-                    let workingArrangement = '';
-                    let module = '';
+                    const agencyPatterns = [
+                        /\n([A-Z][a-zA-Z\s-]+(?:Department|Agency|Council|Commission|Authority|Office|Service)s?)\s*\n/,
+                        /\n([A-Z][a-zA-Z\s-]+(?:Government|Bureau|Institute|Board))\s*\n/,
+                        /(?:ID:[^\n]+\n)([A-Z][a-zA-Z\s-]+(?=\s*\n|Working|Location|Closing))/
+                    ];
                     
-                    allDivs.forEach(div => {
-                        const text = div.textContent?.trim() || '';
-                        if (text.includes('Department') || text.includes('Agency') || text.includes('Council')) {
-                            if (!agency && !text.startsWith('ID:') && text.length < 100) {
-                                agency = text;
+                    for (const pattern of agencyPatterns) {
+                        const match = fullText.match(pattern);
+                        if (match && match[1].trim().length > 5 && match[1].trim().length < 100) {
+                            agency = match[1].trim();
+                            break;
+                        }
+                    }
+                    
+                    // If still no agency, try the div after title
+                    if (!agency) {
+                        const divs = link.querySelectorAll('div');
+                        for (let i = 0; i < divs.length; i++) {
+                            const text = divs[i].textContent?.trim() || '';
+                            if (text.length > 10 && text.length < 80 && 
+                                !text.includes('ID:') && 
+                                !text.includes('Closing') && 
+                                !text.includes('Location') &&
+                                !text.includes('Working') &&
+                                !text.includes('Module') &&
+                                !text.includes('View details')) {
+                                // Check if it looks like an organization name
+                                if (/^[A-Z]/.test(text)) {
+                                    agency = text;
+                                    break;
+                                }
                             }
                         }
-                        if (text.includes('Closing:')) {
-                            closingDate = text.replace('Closing:', '').trim();
-                        }
-                        if (text.includes('Location:')) {
-                            location = text.replace('Location:', '').trim();
-                        }
-                        if (text.includes('Working arrangement:')) {
-                            workingArrangement = text.replace('Working arrangement:', '').trim();
-                        }
-                        if (text.includes('Module:')) {
-                            module = text.replace('Module:', '').trim();
-                        }
-                    });
+                    }
                     
-                    // Extract status from badge (e.g., "Invited sellers", "Open to all")
-                    const badge = link.querySelector('.badge, [class*="status"], [class*="label"]');
-                    const status = badge?.textContent?.trim() || 'Open';
+                    // Status from badge class or invitation type
+                    let status = 'Open';
+                    if (fullText.includes('Invited sellers')) status = 'Invited sellers';
+                    if (fullText.includes('Open to all')) status = 'Open to all';
+                    if (fullText.includes('Closed')) status = 'Closed';
                     
                     if (id || title) {
                         results.push({
                             url: fullUrl,
-                            title,
-                            id,
-                            agency,
-                            closingDate,
-                            location,
-                            workingArrangement,
-                            module,
-                            category: module, // Use module as category
-                            status
+                            title: title,
+                            id: id,
+                            agency: agency,
+                            closingDate: closingMatch ? closingMatch[1].trim() : '',
+                            location: locationMatch ? locationMatch[1].trim() : '',
+                            workingArrangement: workingMatch ? workingMatch[1].trim() : '',
+                            module: moduleMatch ? moduleMatch[1].trim() : '',
+                            category: categoryMatch ? categoryMatch[1].trim() : (moduleMatch ? moduleMatch[1].trim() : ''),
+                            status: status
                         });
                     }
                 });
@@ -184,21 +214,28 @@ const crawler = new PlaywrightCrawler({
                 return results;
             });
             
-            log.info(`Extracted ${cards.length} opportunity cards from listing`);
+            log.info(`Found ${cards.length} opportunity cards on page ${pageNum}`);
             
-            // Store opportunities from cards
+            // Store unique opportunities
+            let newCount = 0;
             for (const card of cards) {
                 if (opportunities.length >= maxOpportunities) {
-                    log.info(`Reached max opportunities limit (${maxOpportunities})`);
+                    log.info(`Reached max limit (${maxOpportunities})`);
                     break;
                 }
+                
+                // Skip duplicates
+                if (seenIds.has(card.id)) {
+                    continue;
+                }
+                seenIds.add(card.id);
                 
                 const oppData: OpportunityData = {
                     buyict_reference: card.id,
                     buyict_url: card.url,
                     title: card.title,
                     buyer_entity_raw: card.agency || null,
-                    category: card.category || null,
+                    category: card.category || card.module || null,
                     description: null,
                     publish_date: null,
                     closing_date: card.closingDate || null,
@@ -219,45 +256,137 @@ const crawler = new PlaywrightCrawler({
                 
                 opportunities.push(oppData);
                 await Dataset.pushData(oppData);
-                log.info(`✓ Added: ${oppData.title} (${oppData.buyict_reference})`);
+                newCount++;
+                log.info(`✓ ${oppData.buyict_reference}: ${oppData.title.substring(0, 50)}...`);
             }
             
-            // Handle pagination - click next page if more needed
+            log.info(`Added ${newCount} new opportunities (total: ${opportunities.length})`);
+            
+            // Handle pagination - look for next page
             if (opportunities.length < maxOpportunities) {
-                try {
-                    // Look for the "›" (next) button in pagination
-                    const paginationLinks = await page.$$('ul.pagination li a');
-                    let nextButton = null;
-                    
-                    for (const link of paginationLinks) {
-                        const text = await link.textContent();
-                        if (text?.includes('›') && !text?.includes('»')) {
-                            nextButton = link;
-                            break;
+                const hasNextPage = await page.evaluate(() => {
+                    const pagination = document.querySelectorAll('ul.pagination li');
+                    for (const li of pagination) {
+                        const link = li.querySelector('a');
+                        const text = link?.textContent?.trim();
+                        // Look for "›" which is the next page button
+                        if (text === '›' && !li.classList.contains('disabled')) {
+                            return true;
                         }
                     }
+                    return false;
+                });
+                
+                if (hasNextPage) {
+                    log.info('Clicking next page...');
                     
-                    if (nextButton) {
-                        const isDisabled = await nextButton.evaluate(el => 
-                            el.closest('li')?.classList.contains('disabled') || false
-                        );
+                    // Click the next button
+                    await page.click('ul.pagination li a:has-text("›")');
+                    await page.waitForLoadState('networkidle');
+                    await page.waitForTimeout(3000);
+                    
+                    // Get the new URL and continue processing
+                    const newUrl = page.url();
+                    log.info(`Navigated to: ${newUrl}`);
+                    
+                    // Re-run extraction on this page by calling handler recursively
+                    // Note: We're on the same page, so we process it again
+                    await page.waitForSelector('a.opportunities-card__link', { timeout: 15000 });
+                    
+                    // Extract from new page
+                    const moreCards = await page.evaluate(() => {
+                        const results: any[] = [];
+                        const cardLinks = document.querySelectorAll('a.opportunities-card__link');
                         
-                        if (!isDisabled) {
-                            log.info('Clicking next page...');
-                            await nextButton.click();
-                            await page.waitForLoadState('networkidle');
-                            await page.waitForTimeout(3000);
+                        cardLinks.forEach((link) => {
+                            const href = link.getAttribute('href') || '';
+                            const fullUrl = href.startsWith('http') ? href : `https://buyict.gov.au/sp${href}`;
+                            const ariaLabel = link.getAttribute('aria-label') || '';
+                            const titleEl = link.querySelector('strong');
+                            const title = titleEl?.textContent?.trim() || '';
+                            const idEl = link.querySelector('.opportunities-card__number');
+                            let id = '';
+                            if (idEl) {
+                                const idMatch = (idEl.textContent || '').match(/ID:\s*([A-Z]+-\d+)/i);
+                                id = idMatch ? idMatch[1] : '';
+                            }
+                            if (!id && ariaLabel) {
+                                const ariaMatch = ariaLabel.match(/ID:\s*([A-Z]+-\d+)/i);
+                                if (ariaMatch) id = ariaMatch[1];
+                            }
                             
-                            // Recursively process the next page
-                            await page.evaluate(() => window.scrollTo(0, 0));
-                        } else {
-                            log.info('No more pages (next button disabled)');
-                        }
-                    } else {
-                        log.info('No pagination next button found');
+                            const fullText = link.textContent || '';
+                            const closingMatch = fullText.match(/Closing:\s*([^,\n]+)/i);
+                            const locationMatch = fullText.match(/Location:\s*([A-Z,\s]+)/i);
+                            const workingMatch = fullText.match(/Working arrangement:\s*(\w+)/i);
+                            const moduleMatch = fullText.match(/Module:\s*([^\n]+)/i);
+                            
+                            // Agency extraction
+                            let agency = '';
+                            const divs = link.querySelectorAll('div');
+                            for (const div of divs) {
+                                const t = div.textContent?.trim() || '';
+                                if (t.length > 10 && t.length < 80 && 
+                                    !t.includes('ID:') && !t.includes('Closing') && 
+                                    !t.includes('Location') && !t.includes('Working') &&
+                                    !t.includes('Module') && !t.includes('View') &&
+                                    /^[A-Z]/.test(t)) {
+                                    agency = t;
+                                    break;
+                                }
+                            }
+                            
+                            if (id || title) {
+                                results.push({
+                                    url: fullUrl, title, id, agency,
+                                    closingDate: closingMatch?.[1]?.trim() || '',
+                                    location: locationMatch?.[1]?.trim() || '',
+                                    workingArrangement: workingMatch?.[1]?.trim() || '',
+                                    module: moduleMatch?.[1]?.trim() || '',
+                                    category: moduleMatch?.[1]?.trim() || '',
+                                    status: fullText.includes('Invited') ? 'Invited sellers' : 'Open'
+                                });
+                            }
+                        });
+                        return results;
+                    });
+                    
+                    log.info(`Page 2: Found ${moreCards.length} more cards`);
+                    
+                    for (const card of moreCards) {
+                        if (opportunities.length >= maxOpportunities) break;
+                        if (seenIds.has(card.id)) continue;
+                        seenIds.add(card.id);
+                        
+                        const oppData: OpportunityData = {
+                            buyict_reference: card.id,
+                            buyict_url: card.url,
+                            title: card.title,
+                            buyer_entity_raw: card.agency || null,
+                            category: card.category || null,
+                            description: null,
+                            publish_date: null,
+                            closing_date: card.closingDate || null,
+                            opportunity_status: card.status || 'Open',
+                            contact_text_raw: null,
+                            rfq_id: card.id,
+                            target_sector: card.agency || null,
+                            engagement_type: null,
+                            estimated_value: null,
+                            location: card.location || null,
+                            experience_level: null,
+                            working_arrangement: card.workingArrangement || null,
+                            module: card.module || null,
+                            key_duties: null,
+                            criteria: [],
+                            attachments: []
+                        };
+                        
+                        opportunities.push(oppData);
+                        await Dataset.pushData(oppData);
                     }
-                } catch (e) {
-                    log.warning('Pagination handling failed');
+                } else {
+                    log.info('No more pages');
                 }
             }
         }
@@ -305,9 +434,9 @@ if (webhookUrl && opportunities.length > 0) {
         console.error('Webhook error:', error);
     }
 } else if (!webhookUrl) {
-    console.log('No webhook URL configured - data saved to Apify dataset only');
+    console.log('No webhook URL configured');
 } else {
-    console.log('No opportunities found - webhook not triggered');
+    console.log('No opportunities found');
 }
 
 await Actor.exit();
