@@ -11,7 +11,8 @@ import {
   Opportunities as BuyICTOpportunities,
   Contacts as BuyICTContacts,
   DepartmentMappings as BuyICTDepartmentMappings,
-  Settings as BuyICTSettings
+  Settings as BuyICTSettings,
+  OpportunityDetail as BuyICTOpportunityDetail
 } from '@/pages/buyict'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -162,6 +163,7 @@ export default function App() {
         {/* BuyICT Snoop Routes */}
         <Route path="/buyict" element={<ProtectedRoute><BuyICTDashboard /></ProtectedRoute>} />
         <Route path="/buyict/opportunities" element={<ProtectedRoute><BuyICTOpportunities /></ProtectedRoute>} />
+        <Route path="/buyict/opportunity/:id" element={<ProtectedRoute><BuyICTOpportunityDetail /></ProtectedRoute>} />
         <Route path="/buyict/contacts" element={<ProtectedRoute><BuyICTContacts /></ProtectedRoute>} />
         <Route path="/buyict/departments" element={<ProtectedRoute><BuyICTDepartmentMappings /></ProtectedRoute>} />
         <Route path="/buyict/settings" element={<ProtectedRoute><BuyICTSettings /></ProtectedRoute>} />
