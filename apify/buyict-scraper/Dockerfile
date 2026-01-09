@@ -4,15 +4,15 @@ FROM apify/actor-node-playwright-chrome:20
 # Copy package files
 COPY package*.json ./
 
-# Install ALL dependencies including devDependencies
-RUN npm ci
+# Install all dependencies
+RUN npm install
 
 # Copy TypeScript config and source
 COPY tsconfig.json ./
 COPY src ./src
 
-# Build TypeScript
-RUN npx tsc
+# Build TypeScript using the locally installed tsc
+RUN ./node_modules/.bin/tsc
 
 # Remove dev dependencies after build
 RUN npm prune --omit=dev
