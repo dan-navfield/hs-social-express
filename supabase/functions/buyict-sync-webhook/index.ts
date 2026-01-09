@@ -55,6 +55,10 @@ interface OpportunityPayload {
     number_of_extensions?: string | null
     industry_briefing?: string | null
     requirements?: string | null
+    // Labour Hire specific fields
+    opportunity_type?: string | null
+    max_hours?: string | null
+    security_clearance?: string | null
 }
 
 interface WebhookPayload {
@@ -203,7 +207,7 @@ serve(async (req) => {
                     title: opp.title,
                     buyer_entity_raw: opp.buyer_entity_raw,
                     category: opp.category,
-                    description: opp.description || opp.requirements,
+                    description: opp.description || opp.requirements || opp.key_duties,
                     publish_date: parseDate(opp.publish_date),
                     closing_date: parseDate(opp.closing_date),
                     opportunity_status: opp.opportunity_status || 'Open',
@@ -225,6 +229,12 @@ serve(async (req) => {
                     location: opp.location,
                     working_arrangement: opp.working_arrangement,
                     engagement_type: opp.engagement_type,
+                    // Labour Hire specific fields
+                    opportunity_type: opp.opportunity_type,
+                    key_duties: opp.key_duties,
+                    experience_level: opp.experience_level,
+                    max_hours: opp.max_hours,
+                    security_clearance: opp.security_clearance,
                     last_synced_at: new Date().toISOString(),
                     sync_job_id: syncJob?.id
                 }

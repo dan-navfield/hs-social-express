@@ -54,7 +54,7 @@ interface Opportunity {
 }
 
 // Helper component for displaying field values
-function FieldValue({ value, isEmail = false }: { value: string | null | undefined; isEmail?: boolean }) {
+function FieldValue({ value, isEmail = false, isDate = false }: { value: string | null | undefined; isEmail?: boolean; isDate?: boolean }) {
     if (!value) {
         return <span className="text-gray-400 italic">Not provided</span>
     }
@@ -64,6 +64,25 @@ function FieldValue({ value, isEmail = false }: { value: string | null | undefin
                 {value}
             </a>
         )
+    }
+    if (isDate) {
+        try {
+            const date = new Date(value)
+            if (!isNaN(date.getTime())) {
+                const formatted = date.toLocaleDateString('en-AU', {
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    timeZoneName: 'short'
+                })
+                return <span className="font-medium text-gray-900">{formatted}</span>
+            }
+        } catch {
+            // Fall through to default
+        }
     }
     return <span className="font-medium text-gray-900">{value}</span>
 }
@@ -231,7 +250,7 @@ export function OpportunityDetail() {
                         <CalendarDays className="w-5 h-5 text-gray-400 mt-0.5" />
                         <div>
                             <p className="text-sm text-gray-500">Published Date</p>
-                            <FieldValue value={opportunity.publish_date} />
+                            <FieldValue value={opportunity.publish_date} isDate />
                         </div>
                     </div>
 
@@ -239,7 +258,7 @@ export function OpportunityDetail() {
                         <Calendar className="w-5 h-5 text-gray-400 mt-0.5" />
                         <div>
                             <p className="text-sm text-gray-500">Closing Date</p>
-                            <FieldValue value={opportunity.closing_date} />
+                            <FieldValue value={opportunity.closing_date} isDate />
                         </div>
                     </div>
 

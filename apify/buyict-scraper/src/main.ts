@@ -41,6 +41,10 @@ interface OpportunityData {
     number_of_extensions: string | null;
     industry_briefing: string | null;
     requirements: string | null;
+    // Labour Hire specific fields
+    opportunity_type: string | null;
+    max_hours: string | null;
+    security_clearance: string | null;
 }
 
 interface ActorInput {
@@ -241,6 +245,12 @@ const crawler = new PlaywrightCrawler({
                             'Working arrangement': 'working_arrangements',
                             'Industry briefing': 'industry_briefing',
                             'Location': 'location',
+                            'Location of work': 'location',
+                            // Labour Hire specific fields
+                            'Experience level': 'experience_level',
+                            'Maximum number of candidates per seller': 'max_candidates_per_seller',
+                            'Maximum hours': 'max_hours',
+                            'Security clearance': 'security_clearance',
                         };
                         
                         // Scan through lines looking for labels
@@ -265,14 +275,49 @@ const crawler = new PlaywrightCrawler({
                             data['buyer_contact'] = emailMatches[0] as string;
                         }
                         
-                        // Extract requirements section
+                        // Determine opportunity type based on RFQ type
+                        const rfqType = (data['rfq_type'] || '').toLowerCase();
+                        const isLabourHire = rfqType.includes('labour hire') || rfqType.includes('dmp2');
+                        const opportunityType = isLabourHire ? 'role' : 'service';
+                        
+                        // Extract requirements/job details section (depends on type)
                         let requirements = '';
-                        const reqIndex = pageText.indexOf('Requirements\n');
-                        if (reqIndex > -1) {
-                            const afterReq = pageText.substring(reqIndex + 12);
-                            const criteriaIndex = afterReq.indexOf('\nCriteria');
-                            const endIndex = criteriaIndex > 0 ? criteriaIndex : Math.min(afterReq.length, 2000);
-                            requirements = afterReq.substring(0, endIndex).trim();
+                        
+                        // Try "Job details" first (Labour Hire)
+                        const jobDetailsIndex = pageText.indexOf('Job details\n');
+                        if (jobDetailsIndex > -1) {
+                            const afterJob = pageText.substring(jobDetailsIndex + 12);
+                            // Find where job details ends (at "Key duties" or "Criteria")
+                            const keyDutiesIndex = afterJob.indexOf('\nKey duties');
+                            const criteriaIndex = afterJob.indexOf('\nCriteria');
+                            let endIndex = Math.min(afterJob.length, 2000);
+                            if (keyDutiesIndex > 0 && keyDutiesIndex < endIndex) endIndex = keyDutiesIndex;
+                            if (criteriaIndex > 0 && criteriaIndex < endIndex) endIndex = criteriaIndex;
+                            requirements = afterJob.substring(0, endIndex).trim();
+                        }
+                        
+                        // Try "Requirements" (Services) if no job details
+                        if (!requirements) {
+                            const reqIndex = pageText.indexOf('Requirements\n');
+                            if (reqIndex > -1) {
+                                const afterReq = pageText.substring(reqIndex + 12);
+                                const criteriaIndex = afterReq.indexOf('\nCriteria');
+                                const endIndex = criteriaIndex > 0 ? criteriaIndex : Math.min(afterReq.length, 2000);
+                                requirements = afterReq.substring(0, endIndex).trim();
+                            }
+                        }
+                        
+                        // Extract Key duties and responsibilities (Labour Hire)
+                        let keyDuties = '';
+                        const keyDutiesIndex = pageText.indexOf('Key duties and responsibilities');
+                        if (keyDutiesIndex > -1) {
+                            const afterDuties = pageText.substring(keyDutiesIndex + 32);
+                            const criteriaIndex = afterDuties.indexOf('\nCriteria');
+                            const complianceIndex = afterDuties.indexOf('\nCompliance');
+                            let endIndex = Math.min(afterDuties.length, 2000);
+                            if (criteriaIndex > 0 && criteriaIndex < endIndex) endIndex = criteriaIndex;
+                            if (complianceIndex > 0 && complianceIndex < endIndex) endIndex = complianceIndex;
+                            keyDuties = afterDuties.substring(0, endIndex).trim();
                         }
                         
                         // Extract criteria section
@@ -347,6 +392,12 @@ const crawler = new PlaywrightCrawler({
                             industryBriefing: data['industry_briefing'] || '',
                             location: data['location'] || '',
                             requirements: requirements.substring(0, 1500),
+                            keyDuties: keyDuties.substring(0, 1500),
+                            opportunityType,
+                            experienceLevel: data['experience_level'] || '',
+                            maxCandidatesPerSeller: data['max_candidates_per_seller'] || '',
+                            maxHours: data['max_hours'] || '',
+                            securityClearance: data['security_clearance'] || '',
                             criteria: criteria.slice(0, 5),
                             rawData: data
                         };
@@ -364,7 +415,7 @@ const crawler = new PlaywrightCrawler({
                         title: finalTitle,
                         buyer_entity_raw: details.buyer || null,
                         category: null,
-                        description: details.requirements || null,
+                        description: details.requirements || details.keyDuties || null,
                         publish_date: details.publishDate || null,
                         closing_date: details.closingDate || null,
                         opportunity_status: 'Open',
@@ -374,10 +425,13 @@ const crawler = new PlaywrightCrawler({
                         engagement_type: details.rfqType || null,
                         estimated_value: null,
                         location: details.location || null,
-                        experience_level: null,
+                        experience_level: details.experienceLevel || null,
                         working_arrangement: details.workingArrangement || null,
+                        opportunity_type: details.opportunityType || null,
+                        key_duties: details.keyDuties || null,
+                        max_hours: details.maxHours || null,
+                        security_clearance: details.securityClearance || null,
                         module: null,
-                        key_duties: null,
                         criteria: details.criteria || [],
                         attachments: [],
                         rfq_type: details.rfqType || null,
@@ -418,6 +472,9 @@ const crawler = new PlaywrightCrawler({
                         location: null,
                         experience_level: null,
                         working_arrangement: null,
+                        opportunity_type: null,
+                        max_hours: null,
+                        security_clearance: null,
                         module: null,
                         key_duties: null,
                         criteria: [],
