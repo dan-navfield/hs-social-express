@@ -209,125 +209,136 @@ const crawler = new PlaywrightCrawler({
                     await page.goto(item.url, { waitUntil: 'networkidle', timeout: 30000 });
                     await page.waitForTimeout(2000);
                     
-                    // Extract all details from the page
+                    // Extract all details from the page using exact BuyICT DOM structure
                     const details = await page.evaluate(() => {
                         const data: Record<string, string> = {};
                         
-                        // Method 1: Look for definition list style (dt/dd or label/value pairs)
-                        // BuyICT uses row-based layout with labels and values
-                        const rows = document.querySelectorAll('.row, tr, dl, .field-row, .detail-row');
+                        // BuyICT uses Bootstrap rows with col-md-4 (label) and col-md-8 (value)
+                        // Labels are in <strong class="ng-binding"> inside col-md-4
+                        const rows = document.querySelectorAll('.row');
+                        
                         rows.forEach(row => {
-                            const label = row.querySelector('.label, th, dt, .field-label, .col-md-4, .col-sm-4')?.textContent?.trim();
-                            const value = row.querySelector('.value, td, dd, .field-value, .col-md-8, .col-sm-8')?.textContent?.trim();
-                            if (label && value && label.length < 50) {
-                                const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '');
-                                if (key.length > 2 && value.length < 500) {
-                                    data[key] = value;
+                            // Get label from col-md-4 > strong
+                            const labelCol = row.querySelector('.col-md-4, .col-xs-12.col-md-4');
+                            const valueCol = row.querySelector('.col-md-8, .col-xs-12.col-md-8');
+                            
+                            if (!labelCol || !valueCol) return;
+                            
+                            // Label is in the strong tag
+                            const labelStrong = labelCol.querySelector('strong');
+                            const labelText = (labelStrong?.textContent || labelCol.textContent || '').trim();
+                            const valueText = valueCol.textContent?.trim() || '';
+                            
+                            if (labelText && valueText && labelText.length < 50 && valueText.length < 500) {
+                                // Normalize key: "RFQ type" -> "rfq_type"
+                                const key = labelText.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '');
+                                if (key.length > 2) {
+                                    data[key] = valueText;
                                 }
                             }
                         });
                         
-                        // Method 2: Find all text nodes that look like "Label: Value" or "Label Value" patterns
-                        const pageText = document.body.innerText || '';
-                        const fieldPatterns = [
-                            { key: 'rfq_type', label: 'RFQ type' },
-                            { key: 'rfq_id', label: 'RFQ ID' },
-                            { key: 'rfq_published_date', label: 'RFQ published date' },
-                            { key: 'deadline_for_questions', label: 'Deadline for asking questions' },
-                            { key: 'rfq_closing_date', label: 'RFQ closing date' },
-                            { key: 'buyer', label: 'Buyer' },
-                            { key: 'buyer_contact', label: 'Buyer contact' },
-                            { key: 'estimated_start_date', label: 'Estimated start date' },
-                            { key: 'initial_contract_duration', label: 'Initial contract duration' },
-                            { key: 'extension_term', label: 'Extension term' },
-                            { key: 'extension_term_details', label: 'Extension term details' },
-                            { key: 'number_of_extensions', label: 'Number of extensions' },
-                            { key: 'working_arrangements', label: 'Working arrangements' },
-                            { key: 'industry_briefing', label: 'Industry briefing' },
-                            { key: 'location', label: 'Location' },
+                        // Also try element-by-element for each known field
+                        const knownFields = [
+                            { key: 'rfq_type', labels: ['RFQ type'] },
+                            { key: 'rfq_id', labels: ['RFQ ID'] },
+                            { key: 'rfq_published_date', labels: ['RFQ published date'] },
+                            { key: 'deadline_for_questions', labels: ['Deadline for asking questions'] },
+                            { key: 'rfq_closing_date', labels: ['RFQ closing date'] },
+                            { key: 'buyer', labels: ['Buyer'] },
+                            { key: 'buyer_contact', labels: ['Buyer contact'] },
+                            { key: 'estimated_start_date', labels: ['Estimated start date'] },
+                            { key: 'initial_contract_duration', labels: ['Initial contract duration'] },
+                            { key: 'extension_term', labels: ['Extension term'] },
+                            { key: 'extension_term_details', labels: ['Extension term details'] },
+                            { key: 'number_of_extensions', labels: ['Number of extensions'] },
+                            { key: 'working_arrangements', labels: ['Working arrangements', 'Working arrangement'] },
+                            { key: 'industry_briefing', labels: ['Industry briefing'] },
+                            { key: 'location', labels: ['Location'] },
                         ];
                         
-                        // For each field, find the label element and get sibling/adjacent value
-                        fieldPatterns.forEach(({ key, label }) => {
+                        knownFields.forEach(({ key, labels }) => {
                             if (data[key]) return; // Already found
                             
-                            // Try to find element containing the label
-                            const elements = document.querySelectorAll('*');
-                            for (const el of elements) {
-                                if (el.children.length === 0 && // Leaf node
-                                    el.textContent?.trim() === label) {
-                                    // Found label, look for value in next element or parent's next child
-                                    const parent = el.parentElement;
-                                    if (!parent) continue;
-                                    
-                                    // Check next sibling
-                                    const nextSibling = el.nextElementSibling;
-                                    if (nextSibling?.textContent?.trim()) {
-                                        data[key] = nextSibling.textContent.trim();
-                                        break;
-                                    }
-                                    
-                                    // Check parent's next sibling
-                                    const parentNextSibling = parent.nextElementSibling;
-                                    if (parentNextSibling?.textContent?.trim()) {
-                                        data[key] = parentNextSibling.textContent.trim();
-                                        break;
+                            // Find <strong> elements containing the label text
+                            const strongs = document.querySelectorAll('strong, strong.ng-binding');
+                            for (const strong of strongs) {
+                                if (labels.some(label => strong.textContent?.trim() === label)) {
+                                    // Found the label, now find value in the same row
+                                    const row = strong.closest('.row');
+                                    if (row) {
+                                        const valueCol = row.querySelector('.col-md-8, .col-xs-12.col-md-8');
+                                        if (valueCol?.textContent?.trim()) {
+                                            data[key] = valueCol.textContent.trim();
+                                            break;
+                                        }
                                     }
                                 }
                             }
                         });
                         
-                        // Method 3: Fallback to line-by-line text extraction
-                        const lines = pageText.split('\n').map(l => l.trim()).filter(l => l);
-                        for (let i = 0; i < lines.length - 1; i++) {
-                            const line = lines[i];
-                            const nextLine = lines[i + 1];
-                            
-                            fieldPatterns.forEach(({ key, label }) => {
-                                if (data[key]) return; // Already found
-                                if (line === label && nextLine && !nextLine.match(/^[A-Z][a-z]+ [a-z]/)) {
-                                    // Line matches label exactly, next line is value
-                                    if (nextLine.length < 200 && !fieldPatterns.some(p => p.label === nextLine)) {
-                                        data[key] = nextLine;
-                                    }
-                                }
-                            });
-                        }
-                        
-                        // Extract email from buyer_contact or page
+                        // Extract email from page
+                        const pageText = document.body.innerText || '';
                         const emailMatch = pageText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-                        if (emailMatch && !data['buyer_contact']) {
-                            data['buyer_contact'] = emailMatch[0];
+                        if (emailMatch) {
+                            if (!data['buyer_contact']) {
+                                data['buyer_contact'] = emailMatch[0];
+                            } else if (!data['buyer_contact'].includes('@')) {
+                                // Override if current value isn't an email
+                                data['buyer_contact'] = emailMatch[0];
+                            }
                         }
                         
                         // Extract requirements section
                         let requirements = '';
-                        const reqStartIndex = pageText.indexOf('Requirements');
-                        if (reqStartIndex > -1) {
-                            const reqSection = pageText.substring(reqStartIndex);
-                            const criteriaIndex = reqSection.indexOf('Criteria');
-                            const endIndex = criteriaIndex > 50 ? criteriaIndex : Math.min(reqSection.length, 2000);
-                            requirements = reqSection.substring(12, endIndex).trim();
+                        const reqHeading = document.querySelector('h2, h3');
+                        const headings = document.querySelectorAll('h2, h3');
+                        for (const h of headings) {
+                            if (h.textContent?.trim() === 'Requirements') {
+                                // Get all following siblings until next heading
+                                let next = h.closest('.row')?.nextElementSibling || h.nextElementSibling;
+                                const parts: string[] = [];
+                                while (next && !next.querySelector('h2, h3')) {
+                                    const text = next.textContent?.trim();
+                                    if (text && text.length > 10) {
+                                        parts.push(text);
+                                    }
+                                    next = next.nextElementSibling;
+                                }
+                                requirements = parts.join('\n').substring(0, 1500);
+                                break;
+                            }
                         }
                         
-                        // Extract essential criteria as array
+                        // Fallback to text extraction for requirements
+                        if (!requirements) {
+                            const reqIndex = pageText.indexOf('Requirements');
+                            if (reqIndex > -1) {
+                                const section = pageText.substring(reqIndex + 12);
+                                const endIdx = section.indexOf('Criteria');
+                                requirements = section.substring(0, endIdx > 50 ? endIdx : 1500).trim();
+                            }
+                        }
+                        
+                        // Extract essential criteria
                         const criteria: string[] = [];
-                        const criteriaStartIndex = pageText.indexOf('Essential criteria');
-                        if (criteriaStartIndex > -1) {
-                            const criteriaSection = pageText.substring(criteriaStartIndex, criteriaStartIndex + 2000);
-                            const criteriaLines = criteriaSection.split('\n')
+                        const criteriaIndex = pageText.indexOf('Essential criteria');
+                        if (criteriaIndex > -1) {
+                            const section = pageText.substring(criteriaIndex, criteriaIndex + 2000);
+                            const lines = section.split('\n')
                                 .map(l => l.trim())
-                                .filter(l => l.length > 20 && !l.startsWith('Essential criteria') && !l.startsWith('Weighting'));
-                            criteria.push(...criteriaLines.slice(0, 5));
+                                .filter(l => l.length > 20 && !l.startsWith('Essential') && !l.startsWith('Weighting'));
+                            criteria.push(...lines.slice(0, 5));
                         }
                         
-                        // Get title
-                        const title = document.querySelector('h1, h2, .opportunity-title, .page-title')?.textContent?.trim() || '';
+                        // Get title from h1 or h2
+                        const title = document.querySelector('h1')?.textContent?.trim() || 
+                                     document.querySelector('h2')?.textContent?.trim() || '';
                         
                         return {
                             title,
                             rfqType: data['rfq_type'] || '',
-                            rfqId: data['rfq_id'] || data['rfq_id'] || '',
+                            rfqId: data['rfq_id'] || '',
                             publishDate: data['rfq_published_date'] || '',
                             closingDate: data['rfq_closing_date'] || '',
                             deadlineQuestions: data['deadline_for_questions'] || '',
@@ -343,7 +354,7 @@ const crawler = new PlaywrightCrawler({
                             location: data['location'] || '',
                             requirements: requirements.substring(0, 1500),
                             criteria: criteria.slice(0, 5),
-                            rawData: data // For debugging
+                            rawData: data
                         };
                     });
                     
