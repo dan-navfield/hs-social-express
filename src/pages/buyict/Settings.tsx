@@ -253,23 +253,81 @@ export function Settings() {
                     const defaultDatasetId = data.data?.defaultDatasetId
                     setApifyRunStatus(status)
 
-                    // Get dataset item count for progress
-                    if (defaultDatasetId && (status === 'RUNNING' || status === 'READY')) {
+                    // Get dataset item count and log for progress
+                    if (status === 'RUNNING' || status === 'READY') {
+                        let itemCount = 0
+
+                        // Get dataset count
+                        if (defaultDatasetId) {
+                            try {
+                                const datasetRes = await fetch(
+                                    `https://api.apify.com/v2/datasets/${defaultDatasetId}?token=${apifyToken}`
+                                )
+                                if (datasetRes.ok) {
+                                    const datasetData = await datasetRes.json()
+                                    itemCount = datasetData.data?.itemCount || 0
+                                }
+                            } catch (e) {
+                                console.error('Failed to get dataset stats:', e)
+                            }
+                        }
+
+                        // Get recent log to parse progress
                         try {
-                            const datasetRes = await fetch(
-                                `https://api.apify.com/v2/datasets/${defaultDatasetId}?token=${apifyToken}`
+                            const logRes = await fetch(
+                                `https://api.apify.com/v2/actor-runs/${runId}/log?token=${apifyToken}&stream=0`
                             )
-                            if (datasetRes.ok) {
-                                const datasetData = await datasetRes.json()
-                                const itemCount = datasetData.data?.itemCount || 0
-                                setSyncProgress(prev => ({
-                                    ...prev,
+                            if (logRes.ok) {
+                                const logText = await logRes.text()
+                                const lines = logText.split('\n')
+
+                                // Parse total found from "Collecting from page X" or "Fetching details for Y opportunities"
+                                let totalFound = 0
+                                let currentItem = ''
+                                let phase = 'Initializing...'
+
+                                for (let i = lines.length - 1; i >= Math.max(0, lines.length - 50); i--) {
+                                    const line = lines[i]
+
+                                    // Check for total found
+                                    const totalMatch = line.match(/Fetching details for (\d+) opportunities/i)
+                                    if (totalMatch && !totalFound) {
+                                        totalFound = parseInt(totalMatch[1])
+                                    }
+
+                                    // Check for current item being fetched
+                                    const fetchMatch = line.match(/\[(\d+)\/(\d+)\] Fetching: ([A-Z]+-\d+) - (.+?)\.{3}/i)
+                                    if (fetchMatch && !currentItem) {
+                                        totalFound = parseInt(fetchMatch[2])
+                                        currentItem = `[${fetchMatch[1]}/${fetchMatch[2]}] ${fetchMatch[3]}: ${fetchMatch[4]}`
+                                        phase = 'Fetching opportunity details...'
+                                    }
+
+                                    // Check for page collection
+                                    const pageMatch = line.match(/Page (\d+): Found (\d+)/i)
+                                    if (pageMatch && !currentItem) {
+                                        phase = `Collecting from page ${pageMatch[1]}...`
+                                    }
+
+                                    // Check for completion
+                                    if (line.includes('Completed:') || line.includes('Scraping Complete')) {
+                                        phase = 'Sending to database...'
+                                    }
+                                }
+
+                                setSyncProgress({
                                     itemsScraped: itemCount,
-                                    phase: itemCount > 0 ? 'Fetching details...' : 'Collecting opportunities...'
-                                }))
+                                    itemsFound: totalFound || itemCount,
+                                    phase: phase,
+                                    currentItem: currentItem
+                                } as any)
                             }
                         } catch (e) {
-                            console.error('Failed to get dataset stats:', e)
+                            // Fallback to basic progress
+                            setSyncProgress({
+                                itemsScraped: itemCount,
+                                phase: itemCount > 0 ? 'Fetching details...' : 'Collecting opportunities...'
+                            })
                         }
                     }
 
@@ -456,10 +514,20 @@ export function Settings() {
                                                 {apifyRunStatus === 'FAILED' && 'Sync failed'}
                                                 {apifyRunStatus === 'ABORTED' && 'Sync was aborted'}
                                             </p>
-                                            {(apifyRunStatus === 'RUNNING' || apifyRunStatus === 'READY') && syncProgress?.itemsScraped !== undefined && (
-                                                <p className="text-sm text-blue-600 mt-1">
-                                                    {syncProgress.itemsScraped} opportunities scraped
-                                                </p>
+                                            {(apifyRunStatus === 'RUNNING' || apifyRunStatus === 'READY') && syncProgress && (
+                                                <div className="mt-1 space-y-1">
+                                                    {/* Progress counts */}
+                                                    <p className="text-sm text-blue-600">
+                                                        {syncProgress.itemsScraped || 0}
+                                                        {(syncProgress as any).itemsFound ? ` of ${(syncProgress as any).itemsFound}` : ''} opportunities scraped
+                                                    </p>
+                                                    {/* Current item */}
+                                                    {(syncProgress as any).currentItem && (
+                                                        <p className="text-xs text-blue-500 font-mono truncate max-w-md">
+                                                            {(syncProgress as any).currentItem}
+                                                        </p>
+                                                    )}
+                                                </div>
                                             )}
                                         </div>
                                         {syncStartedAt && (
