@@ -11,7 +11,11 @@ import {
     FileText,
     Mail,
     AlertCircle,
-    Loader2
+    Loader2,
+    Timer,
+    Users,
+    ClipboardList,
+    CalendarDays
 } from 'lucide-react'
 import { Button } from '@/components/ui'
 import { useSpaceStore } from '@/stores/spaceStore'
@@ -33,6 +37,20 @@ interface Opportunity {
     working_arrangement: string | null
     module: string | null
     created_at: string
+    // Extended fields
+    rfq_type: string | null
+    rfq_id: string | null
+    deadline_for_questions: string | null
+    buyer_contact: string | null
+    estimated_start_date: string | null
+    initial_contract_duration: string | null
+    extension_term: string | null
+    extension_term_details: string | null
+    number_of_extensions: string | null
+    industry_briefing: string | null
+    requirements: string | null
+    criteria: string[] | null
+    engagement_type: string | null
 }
 
 export function OpportunityDetail() {
@@ -133,8 +151,13 @@ export function OpportunityDetail() {
                     <div>
                         <div className="flex items-center gap-2 mb-2">
                             <span className="text-sm font-medium text-purple-600">{opportunity.buyict_reference}</span>
-                            {opportunity.category && (
+                            {opportunity.rfq_type && (
                                 <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">
+                                    {opportunity.rfq_type}
+                                </span>
+                            )}
+                            {opportunity.category && (
+                                <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
                                     {opportunity.category}
                                 </span>
                             )}
@@ -161,8 +184,40 @@ export function OpportunityDetail() {
                         <div className="flex items-start gap-3">
                             <Building2 className="w-5 h-5 text-gray-400 mt-0.5" />
                             <div>
-                                <p className="text-sm text-gray-500">Agency</p>
+                                <p className="text-sm text-gray-500">Buyer / Agency</p>
                                 <p className="font-medium text-gray-900">{opportunity.buyer_entity_raw}</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {opportunity.buyer_contact && (
+                        <div className="flex items-start gap-3">
+                            <Mail className="w-5 h-5 text-gray-400 mt-0.5" />
+                            <div>
+                                <p className="text-sm text-gray-500">Buyer Contact</p>
+                                <a href={`mailto:${opportunity.buyer_contact}`} className="font-medium text-purple-600 hover:underline">
+                                    {opportunity.buyer_contact}
+                                </a>
+                            </div>
+                        </div>
+                    )}
+
+                    {opportunity.rfq_id && (
+                        <div className="flex items-start gap-3">
+                            <FileText className="w-5 h-5 text-gray-400 mt-0.5" />
+                            <div>
+                                <p className="text-sm text-gray-500">RFQ ID</p>
+                                <p className="font-medium text-gray-900">{opportunity.rfq_id}</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {opportunity.publish_date && (
+                        <div className="flex items-start gap-3">
+                            <CalendarDays className="w-5 h-5 text-gray-400 mt-0.5" />
+                            <div>
+                                <p className="text-sm text-gray-500">Published Date</p>
+                                <p className="font-medium text-gray-900">{opportunity.publish_date}</p>
                             </div>
                         </div>
                     )}
@@ -172,7 +227,17 @@ export function OpportunityDetail() {
                             <Calendar className="w-5 h-5 text-gray-400 mt-0.5" />
                             <div>
                                 <p className="text-sm text-gray-500">Closing Date</p>
-                                <p className="font-medium text-gray-900">{formatDate(opportunity.closing_date)}</p>
+                                <p className="font-medium text-gray-900">{opportunity.closing_date}</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {opportunity.deadline_for_questions && (
+                        <div className="flex items-start gap-3">
+                            <Timer className="w-5 h-5 text-gray-400 mt-0.5" />
+                            <div>
+                                <p className="text-sm text-gray-500">Deadline for Questions</p>
+                                <p className="font-medium text-gray-900">{opportunity.deadline_for_questions}</p>
                             </div>
                         </div>
                     )}
@@ -197,12 +262,12 @@ export function OpportunityDetail() {
                         </div>
                     )}
 
-                    {opportunity.module && (
+                    {opportunity.industry_briefing && (
                         <div className="flex items-start gap-3">
-                            <FileText className="w-5 h-5 text-gray-400 mt-0.5" />
+                            <Users className="w-5 h-5 text-gray-400 mt-0.5" />
                             <div>
-                                <p className="text-sm text-gray-500">Module</p>
-                                <p className="font-medium text-gray-900">{opportunity.module}</p>
+                                <p className="text-sm text-gray-500">Industry Briefing</p>
+                                <p className="font-medium text-gray-900">{opportunity.industry_briefing}</p>
                             </div>
                         </div>
                     )}
@@ -219,18 +284,77 @@ export function OpportunityDetail() {
                 </div>
             </div>
 
-            {/* Description */}
-            {opportunity.description && (
+            {/* Contract Details */}
+            {(opportunity.estimated_start_date || opportunity.initial_contract_duration || opportunity.extension_term) && (
                 <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
-                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Description</h2>
-                    <div className="prose prose-sm max-w-none text-gray-700">
-                        {opportunity.description}
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Contract Details</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {opportunity.estimated_start_date && (
+                            <div>
+                                <p className="text-sm text-gray-500">Estimated Start Date</p>
+                                <p className="font-medium text-gray-900">{opportunity.estimated_start_date}</p>
+                            </div>
+                        )}
+                        {opportunity.initial_contract_duration && (
+                            <div>
+                                <p className="text-sm text-gray-500">Initial Contract Duration</p>
+                                <p className="font-medium text-gray-900">{opportunity.initial_contract_duration}</p>
+                            </div>
+                        )}
+                        {opportunity.extension_term && (
+                            <div>
+                                <p className="text-sm text-gray-500">Extension Term</p>
+                                <p className="font-medium text-gray-900">{opportunity.extension_term}</p>
+                            </div>
+                        )}
+                        {opportunity.extension_term_details && (
+                            <div>
+                                <p className="text-sm text-gray-500">Extension Details</p>
+                                <p className="font-medium text-gray-900">{opportunity.extension_term_details}</p>
+                            </div>
+                        )}
+                        {opportunity.number_of_extensions && (
+                            <div>
+                                <p className="text-sm text-gray-500">Number of Extensions</p>
+                                <p className="font-medium text-gray-900">{opportunity.number_of_extensions}</p>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
 
-            {/* Contact Info */}
-            {opportunity.contact_text_raw && (
+            {/* Requirements */}
+            {(opportunity.requirements || opportunity.description) && (
+                <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Requirements</h2>
+                    <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap">
+                        {opportunity.requirements || opportunity.description}
+                    </div>
+                </div>
+            )}
+
+            {/* Criteria */}
+            {opportunity.criteria && opportunity.criteria.length > 0 && (
+                <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                        <ClipboardList className="w-5 h-5" />
+                        Evaluation Criteria
+                    </h2>
+                    <ul className="space-y-2">
+                        {opportunity.criteria.map((criterion, index) => (
+                            <li key={index} className="flex items-start gap-2 text-gray-700">
+                                <span className="w-5 h-5 flex items-center justify-center rounded-full bg-purple-100 text-purple-700 text-xs font-medium flex-shrink-0 mt-0.5">
+                                    {index + 1}
+                                </span>
+                                <span>{criterion}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
+            {/* Contact Info (legacy) */}
+            {opportunity.contact_text_raw && !opportunity.buyer_contact && (
                 <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
                     <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
                         <Mail className="w-5 h-5" />
