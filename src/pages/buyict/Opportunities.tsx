@@ -8,14 +8,18 @@ import {
     Users,
     ArrowLeft,
     X,
-    ChevronDown,
     SortAsc,
-    SortDesc
+    SortDesc,
+    Trash2,
+    CheckSquare,
+    Square,
+    Loader2
 } from 'lucide-react'
 import { Button, Input } from '@/components/ui'
 import { OpportunityCard } from '@/components/buyict'
 import { useBuyICTStore } from '@/stores/buyictStore'
 import { useSpaceStore } from '@/stores/spaceStore'
+import { supabase } from '@/lib/supabase'
 
 type SortField = 'closing_date' | 'title' | 'created_at'
 type SortOrder = 'asc' | 'desc'
@@ -37,6 +41,10 @@ export function Opportunities() {
     const [showFilters, setShowFilters] = useState(false)
     const [sortField, setSortField] = useState<SortField>('closing_date')
     const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
+
+    // Selection state
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+    const [isDeleting, setIsDeleting] = useState(false)
 
     // Extract unique departments from mappings
     const uniqueDepartments = useMemo(() => {
@@ -129,6 +137,61 @@ export function Opportunities() {
         opportunityFilters.closingDateFrom ||
         opportunityFilters.closingDateTo ||
         opportunityFilters.hasContacts !== undefined
+
+    // Selection handlers
+    const toggleSelect = (id: string, e: React.MouseEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setSelectedIds(prev => {
+            const next = new Set(prev)
+            if (next.has(id)) {
+                next.delete(id)
+            } else {
+                next.add(id)
+            }
+            return next
+        })
+    }
+
+    const toggleSelectAll = () => {
+        if (selectedIds.size === sortedOpportunities.length) {
+            setSelectedIds(new Set())
+        } else {
+            setSelectedIds(new Set(sortedOpportunities.map(o => o.id)))
+        }
+    }
+
+    const handleDeleteSelected = async () => {
+        if (selectedIds.size === 0) return
+
+        const confirmed = window.confirm(
+            `Are you sure you want to delete ${selectedIds.size} opportunit${selectedIds.size === 1 ? 'y' : 'ies'}?\n\nThis cannot be undone.`
+        )
+        if (!confirmed) return
+
+        setIsDeleting(true)
+        try {
+            const { error } = await supabase
+                .from('buyict_opportunities')
+                .delete()
+                .in('id', Array.from(selectedIds))
+
+            if (error) throw error
+
+            setSelectedIds(new Set())
+            // Refresh list
+            if (currentSpace?.id) {
+                fetchOpportunities(currentSpace.id)
+            }
+        } catch (err) {
+            console.error('Failed to delete opportunities:', err)
+            alert('Failed to delete opportunities')
+        } finally {
+            setIsDeleting(false)
+        }
+    }
+
+    const allSelected = sortedOpportunities.length > 0 && selectedIds.size === sortedOpportunities.length
 
     return (
         <div className="p-8 bg-gray-50 min-h-screen">
@@ -302,6 +365,49 @@ export function Opportunities() {
                 )}
             </div>
 
+            {/* Selection toolbar */}
+            {sortedOpportunities.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-3 mb-4 flex items-center gap-4">
+                    <button
+                        onClick={toggleSelectAll}
+                        className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
+                    >
+                        {allSelected ? (
+                            <CheckSquare className="w-5 h-5 text-purple-600" />
+                        ) : (
+                            <Square className="w-5 h-5" />
+                        )}
+                        {allSelected ? 'Deselect All' : 'Select All'}
+                    </button>
+
+                    {selectedIds.size > 0 && (
+                        <>
+                            <span className="text-sm text-gray-500">
+                                {selectedIds.size} selected
+                            </span>
+                            <Button
+                                variant="ghost"
+                                onClick={handleDeleteSelected}
+                                disabled={isDeleting}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50 ml-auto"
+                            >
+                                {isDeleting ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        Deleting...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Trash2 className="w-4 h-4" />
+                                        Delete Selected
+                                    </>
+                                )}
+                            </Button>
+                        </>
+                    )}
+                </div>
+            )}
+
             {/* Results */}
             {opportunitiesLoading ? (
                 <div className="flex items-center justify-center py-16">
@@ -332,12 +438,25 @@ export function Opportunities() {
             ) : (
                 <div className="space-y-4">
                     {sortedOpportunities.map((opportunity) => (
-                        <Link
-                            key={opportunity.id}
-                            to={`/buyict/opportunity/${opportunity.id}`}
-                        >
-                            <OpportunityCard opportunity={opportunity} />
-                        </Link>
+                        <div key={opportunity.id} className="relative">
+                            {/* Checkbox */}
+                            <button
+                                onClick={(e) => toggleSelect(opportunity.id, e)}
+                                className="absolute left-4 top-1/2 -translate-y-1/2 z-10 p-1 hover:bg-gray-100 rounded"
+                            >
+                                {selectedIds.has(opportunity.id) ? (
+                                    <CheckSquare className="w-5 h-5 text-purple-600" />
+                                ) : (
+                                    <Square className="w-5 h-5 text-gray-400" />
+                                )}
+                            </button>
+                            <Link
+                                to={`/buyict/opportunity/${opportunity.id}`}
+                                className="block pl-12"
+                            >
+                                <OpportunityCard opportunity={opportunity} />
+                            </Link>
+                        </div>
                     ))}
                 </div>
             )}
