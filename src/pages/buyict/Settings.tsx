@@ -82,6 +82,12 @@ export function Settings() {
     const [apifyRunId, setApifyRunId] = useState<string | null>(null)
     const [apifyRunStatus, setApifyRunStatus] = useState<string | null>(null)
     const [syncStartedAt, setSyncStartedAt] = useState<Date | null>(null)
+    const [syncProgress, setSyncProgress] = useState<{
+        itemsFound?: number;
+        itemsScraped?: number;
+        currentPage?: number;
+        phase?: string;
+    } | null>(null)
 
     useEffect(() => {
         if (currentSpace?.id) {
@@ -239,17 +245,40 @@ export function Settings() {
     const pollApifyRunStatus = async (runId: string) => {
         const poll = async () => {
             try {
+                // Get run status
                 const response = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${apifyToken}`)
                 if (response.ok) {
                     const data = await response.json()
                     const status = data.data?.status
+                    const defaultDatasetId = data.data?.defaultDatasetId
                     setApifyRunStatus(status)
+
+                    // Get dataset item count for progress
+                    if (defaultDatasetId && (status === 'RUNNING' || status === 'READY')) {
+                        try {
+                            const datasetRes = await fetch(
+                                `https://api.apify.com/v2/datasets/${defaultDatasetId}?token=${apifyToken}`
+                            )
+                            if (datasetRes.ok) {
+                                const datasetData = await datasetRes.json()
+                                const itemCount = datasetData.data?.itemCount || 0
+                                setSyncProgress(prev => ({
+                                    ...prev,
+                                    itemsScraped: itemCount,
+                                    phase: itemCount > 0 ? 'Fetching details...' : 'Collecting opportunities...'
+                                }))
+                            }
+                        } catch (e) {
+                            console.error('Failed to get dataset stats:', e)
+                        }
+                    }
 
                     // Keep polling if running
                     if (status === 'RUNNING' || status === 'READY') {
                         setTimeout(poll, 3000) // Poll every 3 seconds
                     } else {
                         // Run finished - refresh sync jobs
+                        setSyncProgress(null)
                         setTimeout(() => {
                             if (currentSpace?.id) {
                                 fetchSyncJobs(currentSpace.id)
@@ -416,16 +445,23 @@ export function Settings() {
                                 )}
                                 <div className="flex-1">
                                     <div className="flex items-center justify-between">
-                                        <p className={`font-medium ${apifyRunStatus === 'SUCCEEDED' ? 'text-green-800' :
-                                            apifyRunStatus === 'FAILED' || apifyRunStatus === 'ABORTED' ? 'text-red-800' :
-                                                'text-blue-800'
-                                            }`}>
-                                            {apifyRunStatus === 'RUNNING' && 'Scraping BuyICT opportunities...'}
-                                            {apifyRunStatus === 'READY' && 'Starting scraper...'}
-                                            {apifyRunStatus === 'SUCCEEDED' && 'Sync completed successfully!'}
-                                            {apifyRunStatus === 'FAILED' && 'Sync failed'}
-                                            {apifyRunStatus === 'ABORTED' && 'Sync was aborted'}
-                                        </p>
+                                        <div>
+                                            <p className={`font-medium ${apifyRunStatus === 'SUCCEEDED' ? 'text-green-800' :
+                                                apifyRunStatus === 'FAILED' || apifyRunStatus === 'ABORTED' ? 'text-red-800' :
+                                                    'text-blue-800'
+                                                }`}>
+                                                {apifyRunStatus === 'RUNNING' && (syncProgress?.phase || 'Scraping BuyICT opportunities...')}
+                                                {apifyRunStatus === 'READY' && 'Starting scraper...'}
+                                                {apifyRunStatus === 'SUCCEEDED' && 'Sync completed successfully!'}
+                                                {apifyRunStatus === 'FAILED' && 'Sync failed'}
+                                                {apifyRunStatus === 'ABORTED' && 'Sync was aborted'}
+                                            </p>
+                                            {(apifyRunStatus === 'RUNNING' || apifyRunStatus === 'READY') && syncProgress?.itemsScraped !== undefined && (
+                                                <p className="text-sm text-blue-600 mt-1">
+                                                    {syncProgress.itemsScraped} opportunities scraped
+                                                </p>
+                                            )}
+                                        </div>
                                         {syncStartedAt && (
                                             <span className="text-xs text-gray-500">
                                                 Started {Math.round((Date.now() - syncStartedAt.getTime()) / 1000)}s ago
