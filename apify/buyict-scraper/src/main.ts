@@ -209,131 +209,81 @@ const crawler = new PlaywrightCrawler({
                     await page.goto(item.url, { waitUntil: 'networkidle', timeout: 30000 });
                     await page.waitForTimeout(2000);
                     
-                    // Extract all details from the page using exact BuyICT DOM structure
+                    // Extract all details using simple text parsing
                     const details = await page.evaluate(() => {
+                        const pageText = document.body.innerText || '';
+                        const lines = pageText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
                         const data: Record<string, string> = {};
                         
-                        // BuyICT uses Bootstrap rows with col-md-4 (label) and col-md-8 (value)
-                        // Labels are in <strong class="ng-binding"> inside col-md-4
-                        const rows = document.querySelectorAll('.row');
+                        // Known field labels - when we see one, the next line(s) is the value
+                        const fieldLabels: Record<string, string> = {
+                            'RFQ type': 'rfq_type',
+                            'RFQ ID': 'rfq_id',
+                            'RFQ published date': 'rfq_published_date',
+                            'Deadline for asking questions': 'deadline_for_questions',
+                            'RFQ closing date': 'rfq_closing_date',
+                            'Buyer': 'buyer',
+                            'Buyer contact': 'buyer_contact',
+                            'Estimated start date': 'estimated_start_date',
+                            'Initial contract duration': 'initial_contract_duration',
+                            'Extension term': 'extension_term',
+                            'Extension term details': 'extension_term_details',
+                            'Number of extensions': 'number_of_extensions',
+                            'Working arrangements': 'working_arrangements',
+                            'Working arrangement': 'working_arrangements',
+                            'Industry briefing': 'industry_briefing',
+                            'Location': 'location',
+                        };
                         
-                        rows.forEach(row => {
-                            // Get label from col-md-4 > strong
-                            const labelCol = row.querySelector('.col-md-4, .col-xs-12.col-md-4');
-                            const valueCol = row.querySelector('.col-md-8, .col-xs-12.col-md-8');
+                        // Scan through lines looking for labels
+                        for (let i = 0; i < lines.length - 1; i++) {
+                            const line = lines[i];
+                            const nextLine = lines[i + 1];
                             
-                            if (!labelCol || !valueCol) return;
-                            
-                            // Label is in the strong tag
-                            const labelStrong = labelCol.querySelector('strong');
-                            const labelText = (labelStrong?.textContent || labelCol.textContent || '').trim();
-                            const valueText = valueCol.textContent?.trim() || '';
-                            
-                            if (labelText && valueText && labelText.length < 50 && valueText.length < 500) {
-                                // Normalize key: "RFQ type" -> "rfq_type"
-                                const key = labelText.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '');
-                                if (key.length > 2) {
-                                    data[key] = valueText;
+                            // Check if this line is a known label
+                            const fieldKey = fieldLabels[line];
+                            if (fieldKey && !data[fieldKey]) {
+                                // Check that next line isn't another label and isn't too long
+                                const isNextLineLabel = Object.keys(fieldLabels).includes(nextLine);
+                                if (!isNextLineLabel && nextLine.length < 300) {
+                                    data[fieldKey] = nextLine;
                                 }
                             }
-                        });
+                        }
                         
-                        // Also try element-by-element for each known field
-                        const knownFields = [
-                            { key: 'rfq_type', labels: ['RFQ type'] },
-                            { key: 'rfq_id', labels: ['RFQ ID'] },
-                            { key: 'rfq_published_date', labels: ['RFQ published date'] },
-                            { key: 'deadline_for_questions', labels: ['Deadline for asking questions'] },
-                            { key: 'rfq_closing_date', labels: ['RFQ closing date'] },
-                            { key: 'buyer', labels: ['Buyer'] },
-                            { key: 'buyer_contact', labels: ['Buyer contact'] },
-                            { key: 'estimated_start_date', labels: ['Estimated start date'] },
-                            { key: 'initial_contract_duration', labels: ['Initial contract duration'] },
-                            { key: 'extension_term', labels: ['Extension term'] },
-                            { key: 'extension_term_details', labels: ['Extension term details'] },
-                            { key: 'number_of_extensions', labels: ['Number of extensions'] },
-                            { key: 'working_arrangements', labels: ['Working arrangements', 'Working arrangement'] },
-                            { key: 'industry_briefing', labels: ['Industry briefing'] },
-                            { key: 'location', labels: ['Location'] },
-                        ];
-                        
-                        knownFields.forEach(({ key, labels }) => {
-                            if (data[key]) return; // Already found
-                            
-                            // Find <strong> elements containing the label text
-                            const strongs = document.querySelectorAll('strong, strong.ng-binding');
-                            for (const strong of strongs) {
-                                if (labels.some(label => strong.textContent?.trim() === label)) {
-                                    // Found the label, now find value in the same row
-                                    const row = strong.closest('.row');
-                                    if (row) {
-                                        const valueCol = row.querySelector('.col-md-8, .col-xs-12.col-md-8');
-                                        if (valueCol?.textContent?.trim()) {
-                                            data[key] = valueCol.textContent.trim();
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        });
-                        
-                        // Extract email from page
-                        const pageText = document.body.innerText || '';
-                        const emailMatch = pageText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-                        if (emailMatch) {
-                            if (!data['buyer_contact']) {
-                                data['buyer_contact'] = emailMatch[0];
-                            } else if (!data['buyer_contact'].includes('@')) {
-                                // Override if current value isn't an email
-                                data['buyer_contact'] = emailMatch[0];
-                            }
+                        // Extract email addresses from page
+                        const emailMatches = pageText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.gov\.au/g) || [];
+                        if (emailMatches.length > 0) {
+                            data['buyer_contact'] = emailMatches[0]; // First .gov.au email
                         }
                         
                         // Extract requirements section
                         let requirements = '';
-                        const reqHeading = document.querySelector('h2, h3');
-                        const headings = document.querySelectorAll('h2, h3');
-                        for (const h of headings) {
-                            if (h.textContent?.trim() === 'Requirements') {
-                                // Get all following siblings until next heading
-                                let next = h.closest('.row')?.nextElementSibling || h.nextElementSibling;
-                                const parts: string[] = [];
-                                while (next && !next.querySelector('h2, h3')) {
-                                    const text = next.textContent?.trim();
-                                    if (text && text.length > 10) {
-                                        parts.push(text);
-                                    }
-                                    next = next.nextElementSibling;
-                                }
-                                requirements = parts.join('\n').substring(0, 1500);
-                                break;
-                            }
+                        const reqIndex = pageText.indexOf('Requirements\n');
+                        if (reqIndex > -1) {
+                            const afterReq = pageText.substring(reqIndex + 12);
+                            const criteriaIndex = afterReq.indexOf('\nCriteria');
+                            const endIndex = criteriaIndex > 0 ? criteriaIndex : Math.min(afterReq.length, 2000);
+                            requirements = afterReq.substring(0, endIndex).trim();
                         }
                         
-                        // Fallback to text extraction for requirements
-                        if (!requirements) {
-                            const reqIndex = pageText.indexOf('Requirements');
-                            if (reqIndex > -1) {
-                                const section = pageText.substring(reqIndex + 12);
-                                const endIdx = section.indexOf('Criteria');
-                                requirements = section.substring(0, endIdx > 50 ? endIdx : 1500).trim();
-                            }
-                        }
-                        
-                        // Extract essential criteria
+                        // Extract criteria section
                         const criteria: string[] = [];
                         const criteriaIndex = pageText.indexOf('Essential criteria');
                         if (criteriaIndex > -1) {
                             const section = pageText.substring(criteriaIndex, criteriaIndex + 2000);
-                            const lines = section.split('\n')
+                            const criteriaLines = section.split('\n')
                                 .map(l => l.trim())
-                                .filter(l => l.length > 20 && !l.startsWith('Essential') && !l.startsWith('Weighting'));
-                            criteria.push(...lines.slice(0, 5));
+                                .filter(l => l.length > 30 && !l.startsWith('Essential') && !l.startsWith('Weighting') && !l.match(/^\d+$/));
+                            criteria.push(...criteriaLines.slice(0, 5));
                         }
                         
-                        // Get title from h1 or h2
+                        // Get title from h1
                         const title = document.querySelector('h1')?.textContent?.trim() || 
                                      document.querySelector('h2')?.textContent?.trim() || '';
+                        
+                        // Debug: Log found fields
+                        console.log('Extracted data:', data);
                         
                         return {
                             title,
