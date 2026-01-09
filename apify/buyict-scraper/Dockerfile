@@ -4,18 +4,18 @@ FROM apify/actor-node-playwright-chrome:20
 # Copy package files
 COPY package*.json ./
 
-# Install ALL dependencies (including dev for TypeScript build)
-RUN npm install --ignore-scripts --unsafe-perm
+# Install ALL dependencies including devDependencies
+RUN npm ci
 
 # Copy TypeScript config and source
 COPY tsconfig.json ./
 COPY src ./src
 
 # Build TypeScript
-RUN npm run build
+RUN npx tsc
 
-# Remove dev dependencies after build to reduce image size
-RUN npm prune --production
+# Remove dev dependencies after build
+RUN npm prune --omit=dev
 
 # Run the actor
 CMD npm run start
