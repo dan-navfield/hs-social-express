@@ -222,30 +222,34 @@ export function AgencyDetail() {
                     )
 
                     // Fetch logs
-                    const logResponse = await fetch(
-                        `https://api.apify.com/v2/acts/verifiable_hare~orgchart-scraper/runs/${runId}/log?token=${apifyToken}`
-                    )
-
                     let logLines: string[] = []
-                    if (logResponse.ok) {
-                        const logText = await logResponse.text()
-                        // Get all non-empty lines, take last 40
-                        logLines = logText.split('\n')
-                            .filter(line => line.trim().length > 10) // Filter tiny lines
-                            .slice(-40)
-                            .map(line => {
-                                // Clean up timestamp (handles both Z and numeric formats)
+                    try {
+                        const logResponse = await fetch(
+                            `https://api.apify.com/v2/acts/verifiable_hare~orgchart-scraper/runs/${runId}/log?token=${apifyToken}`
+                        )
+
+                        if (logResponse.ok) {
+                            const logText = await logResponse.text()
+                            console.log('Apify log length:', logText.length)
+
+                            // Split into lines and take last 50
+                            const allLines = logText.split('\n').filter(line => line.trim())
+                            logLines = allLines.slice(-50).map(line => {
+                                // Clean up timestamp
                                 return line
                                     .replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s*/, '')
+                                    .replace(/ACTOR:\s*/g, '🔹 ')
                                     .replace(/INFO\s+PlaywrightCrawler:\s*/g, '▸ ')
                                     .replace(/INFO\s+/g, '• ')
-                                    .replace(/WARN\s+PlaywrightCrawler:\s*/g, '⚠ ')
                                     .replace(/WARN\s+/g, '⚠ ')
                                     .replace(/ERROR\s*/g, '✗ ')
-                                    .replace(/PlaywrightCrawler:\s*/g, '')
                                     .trim()
-                            })
-                            .filter(line => line.length > 5) // Filter lines that became empty after cleanup
+                            }).filter(line => line.length > 3)
+                        } else {
+                            console.error('Log fetch failed:', logResponse.status)
+                        }
+                    } catch (logErr) {
+                        console.error('Log fetch error:', logErr)
                     }
 
                     if (statusResponse.ok) {
@@ -259,8 +263,8 @@ export function AgencyDetail() {
                             pagesProcessed: run.stats?.requestsFinished || 0,
                             peopleFound: people.length,
                             elapsedSeconds: Math.floor((Date.now() - startTime) / 1000),
-                            logs: logLines.length > 0 ? logLines : (prev?.logs || []),
-                            showLogs: prev?.showLogs || false
+                            logs: logLines.length > 0 ? logLines : (prev?.logs || ['Waiting for logs...']),
+                            showLogs: prev?.showLogs ?? true // Default to open
                         }))
 
                         // Stop polling when run is complete

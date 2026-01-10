@@ -636,50 +636,63 @@ const crawler = new PlaywrightCrawler({
                 
                 for (const pdfLink of pdfLinks) {
                     const pdfUrl = new URL(pdfLink, url).href;
-                    log.info(`Downloading PDF via browser: ${pdfUrl}`);
+                    log.info(`Downloading PDF: ${pdfUrl}`);
                     
                     try {
-                        // Use Playwright's browser context to download PDF (avoids WAF blocks)
-                        const context = page.context();
-                        const pdfPage = await context.newPage();
-                        
-                        // Navigate to PDF with longer timeout
-                        const pdfResponse = await pdfPage.goto(pdfUrl, { 
-                            waitUntil: 'load',
-                            timeout: 60000 // 60 second timeout
+                        // Use Node fetch with proper headers - browser context didn't work
+                        const pdfResponse = await fetch(pdfUrl, {
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                                'Accept': 'application/pdf,*/*',
+                                'Accept-Language': 'en-US,en;q=0.9',
+                                'Referer': url
+                            }
                         });
                         
-                        if (pdfResponse) {
-                            const pdfBuffer = await pdfResponse.body();
-                            await pdfPage.close();
+                        if (!pdfResponse.ok) {
+                            log.error(`PDF fetch failed: ${pdfResponse.status}`);
+                            continue;
+                        }
+                        
+                        const contentType = pdfResponse.headers.get('content-type') || '';
+                        log.info(`PDF response content-type: ${contentType}`);
+                        
+                        const pdfBuffer = Buffer.from(await pdfResponse.arrayBuffer());
+                        log.info(`Downloaded PDF: ${pdfBuffer.length} bytes`);
+                        
+                        // Verify it's actually a PDF (starts with %PDF)
+                        if (pdfBuffer.length < 1000) {
+                            log.error(`PDF too small (${pdfBuffer.length} bytes), likely not a real PDF`);
+                            const preview = pdfBuffer.toString('utf8', 0, Math.min(200, pdfBuffer.length));
+                            log.error(`Content preview: ${preview}`);
+                            continue;
+                        }
+                        
+                        const header = pdfBuffer.toString('utf8', 0, 5);
+                        if (!header.startsWith('%PDF')) {
+                            log.error(`Not a valid PDF (header: ${header})`);
+                            continue;
+                        }
+                        
+                        // Convert to base64 and send to Gemini
+                        const pdfBase64 = pdfBuffer.toString('base64');
+                        log.info(`PDF base64 encoded: ${pdfBase64.length} chars`);
+                        
+                        const pdfPeople = await extractPeopleFromPdfBase64(pdfBase64, agencyName);
+                        
+                        if (pdfPeople.length > 0) {
+                            log.info(`Extracted ${pdfPeople.length} people from org chart PDF`);
                             
-                            if (pdfBuffer && pdfBuffer.length > 0) {
-                                log.info(`Downloaded PDF: ${pdfBuffer.length} bytes`);
-                                
-                                // Convert to base64 and send to Gemini
-                                const pdfBase64 = pdfBuffer.toString('base64');
-                                log.info(`PDF base64 encoded: ${pdfBase64.length} chars`);
-                                
-                                const pdfPeople = await extractPeopleFromPdfBase64(pdfBase64, agencyName);
-                                
-                                if (pdfPeople.length > 0) {
-                                    log.info(`Extracted ${pdfPeople.length} people from org chart PDF`);
-                                    
-                                    // Store and send results
-                                    let existing = results.get(agencyId);
-                                    if (!existing) {
-                                        existing = { agency: { id: agencyId, name: agencyName, website: '' }, people: [] as ExtractedPerson[], orgChartUrl: undefined };
-                                    }
-                                    existing.people.push(...pdfPeople);
-                                    existing.orgChartUrl = pdfUrl;
-                                    results.set(agencyId, existing);
-                                    
-                                    await sendPeopleToWebhook(agencyId, pdfPeople, pdfUrl);
-                                }
+                            // Store and send results
+                            let existing = results.get(agencyId);
+                            if (!existing) {
+                                existing = { agency: { id: agencyId, name: agencyName, website: '' }, people: [] as ExtractedPerson[], orgChartUrl: undefined };
                             }
-                        } else {
-                            await pdfPage.close();
-                            log.error(`No response from PDF URL`);
+                            existing.people.push(...pdfPeople);
+                            existing.orgChartUrl = pdfUrl;
+                            results.set(agencyId, existing);
+                            
+                            await sendPeopleToWebhook(agencyId, pdfPeople, pdfUrl);
                         }
                     } catch (pdfError) {
                         log.error(`Failed to download PDF: ${pdfError}`);
