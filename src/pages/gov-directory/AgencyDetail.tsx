@@ -91,14 +91,13 @@ export function AgencyDetail() {
 
     const [isDiscoveringOrgChart, setIsDiscoveringOrgChart] = useState(false)
     const [isScrapingPeople, setIsScrapingPeople] = useState(false)
-    const [showEnrichmentModal, setShowEnrichmentModal] = useState(false)
+    const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set())
     const [isEnrichingPeople, setIsEnrichingPeople] = useState(false)
     const [enrichmentProgress, setEnrichmentProgress] = useState<{
         current: number
         total: number
         found: number
         currentName: string
-        log: Array<{ name: string; status: 'pending' | 'found' | 'not_found'; email?: string; phone?: string }>
     } | null>(null)
     const [extractionProgress, setExtractionProgress] = useState<ExtractionProgress | null>(null)
     const [searchQuery, setSearchQuery] = useState('')
@@ -177,31 +176,36 @@ export function AgencyDetail() {
         }
     }
 
-    const startEnrichment = () => {
-        const peopleToEnrich = people.filter(p => !p.email)
-        if (peopleToEnrich.length === 0) {
-            alert('All people already have email addresses!')
-            return
-        }
-
-        // Initialize the log with all people as pending
-        setEnrichmentProgress({
-            current: 0,
-            total: peopleToEnrich.length,
-            found: 0,
-            currentName: '',
-            log: peopleToEnrich.map(p => ({ name: p.name, status: 'pending' as const }))
+    // Toggle selection for a person
+    const toggleSelectPerson = (personId: string) => {
+        setSelectedPeople(prev => {
+            const newSet = new Set(prev)
+            if (newSet.has(personId)) {
+                newSet.delete(personId)
+            } else {
+                newSet.add(personId)
+            }
+            return newSet
         })
-        setShowEnrichmentModal(true)
+    }
+
+    // Select/deselect all people without email
+    const toggleSelectAll = () => {
+        const unenrichedPeople = people.filter(p => !p.email)
+        if (selectedPeople.size === unenrichedPeople.length) {
+            setSelectedPeople(new Set())
+        } else {
+            setSelectedPeople(new Set(unenrichedPeople.map(p => p.id)))
+        }
     }
 
     const handleEnrichWithApollo = async () => {
-        if (!agency) return
+        if (!agency || selectedPeople.size === 0) return
 
-        // Only enrich people without email
-        const peopleToEnrich = people.filter(p => !p.email)
+        const peopleToEnrich = people.filter(p => selectedPeople.has(p.id))
 
         setIsEnrichingPeople(true)
+        setEnrichmentProgress({ current: 0, total: peopleToEnrich.length, found: 0, currentName: '' })
 
         // Get domain from agency website
         let domain = ''
@@ -224,14 +228,10 @@ export function AgencyDetail() {
             } : null)
 
             try {
-                // Split name into first/last
                 const nameParts = person.name.trim().split(' ')
                 const firstName = nameParts[0]
                 const lastName = nameParts.slice(1).join(' ') || nameParts[0]
 
-                console.log(`Apollo: Searching for ${firstName} ${lastName} at ${agency.name}`)
-
-                // Call our edge function to avoid CORS
                 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
                 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
@@ -252,83 +252,37 @@ export function AgencyDetail() {
 
                 if (response.ok) {
                     const data = await response.json()
-                    console.log('Apollo enrichment response:', data.person ? 'Found' : 'Not found')
-
                     if (data.person) {
-                        const apolloPerson = data.person
-
-                        // Update database with enriched data
                         const updates: Record<string, string | null> = {}
-                        if (apolloPerson.email) updates.email = apolloPerson.email
-                        if (apolloPerson.phone) updates.phone = apolloPerson.phone
-                        if (apolloPerson.linkedin_url) updates.linkedin_url = apolloPerson.linkedin_url
-                        if (apolloPerson.photo_url) updates.photo_url = apolloPerson.photo_url
+                        if (data.person.email) updates.email = data.person.email
+                        if (data.person.phone) updates.phone = data.person.phone
+                        if (data.person.linkedin_url) updates.linkedin_url = data.person.linkedin_url
+                        if (data.person.photo_url) updates.photo_url = data.person.photo_url
 
                         if (Object.keys(updates).length > 0) {
                             foundCount++
+                            setEnrichmentProgress(prev => prev ? { ...prev, found: foundCount } : null)
 
                             await supabase
                                 .from('gov_agency_people')
                                 .update(updates)
                                 .eq('id', person.id)
 
-                            // Update local state
                             setPeople(prev => prev.map(p =>
                                 p.id === person.id ? { ...p, ...updates } : p
                             ))
-
-                            // Update log with found status
-                            setEnrichmentProgress(prev => prev ? {
-                                ...prev,
-                                found: foundCount,
-                                log: prev.log.map(l =>
-                                    l.name === person.name
-                                        ? { ...l, status: 'found' as const, email: updates.email || undefined, phone: updates.phone || undefined }
-                                        : l
-                                )
-                            } : null)
-                        } else {
-                            // No data found
-                            setEnrichmentProgress(prev => prev ? {
-                                ...prev,
-                                log: prev.log.map(l =>
-                                    l.name === person.name ? { ...l, status: 'not_found' as const } : l
-                                )
-                            } : null)
                         }
-                    } else {
-                        // No match in Apollo
-                        setEnrichmentProgress(prev => prev ? {
-                            ...prev,
-                            log: prev.log.map(l =>
-                                l.name === person.name ? { ...l, status: 'not_found' as const } : l
-                            )
-                        } : null)
                     }
-                } else {
-                    console.error('Apollo API error:', await response.text())
-                    setEnrichmentProgress(prev => prev ? {
-                        ...prev,
-                        log: prev.log.map(l =>
-                            l.name === person.name ? { ...l, status: 'not_found' as const } : l
-                        )
-                    } : null)
                 }
             } catch (err) {
                 console.error(`Failed to enrich ${person.name}:`, err)
-                setEnrichmentProgress(prev => prev ? {
-                    ...prev,
-                    log: prev.log.map(l =>
-                        l.name === person.name ? { ...l, status: 'not_found' as const } : l
-                    )
-                } : null)
             }
 
-            // Small delay to avoid rate limiting
             await new Promise(r => setTimeout(r, 500))
         }
 
         setIsEnrichingPeople(false)
+        setSelectedPeople(new Set())
     }
 
     const handleDiscoverOrgChart = async () => {
@@ -672,12 +626,21 @@ export function AgencyDetail() {
                         <Button
                             variant="secondary"
                             size="sm"
-                            onClick={startEnrichment}
-                            disabled={isEnrichingPeople || people.length === 0}
-                            title="Enrich people with Apollo.io to find emails, phones, and LinkedIn"
+                            onClick={handleEnrichWithApollo}
+                            disabled={isEnrichingPeople || selectedPeople.size === 0}
+                            title="Enrich selected people with Apollo.io"
                         >
-                            <Sparkles className="w-4 h-4" />
-                            Enrich (Apollo)
+                            {isEnrichingPeople ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Enriching...
+                                </>
+                            ) : (
+                                <>
+                                    <Sparkles className="w-4 h-4" />
+                                    Enrich ({selectedPeople.size})
+                                </>
+                            )}
                         </Button>
                     </div>
                 </div>
@@ -779,6 +742,24 @@ export function AgencyDetail() {
                     />
                 </div>
 
+                {/* Select All for enrichment */}
+                {people.filter(p => !p.email).length > 0 && (
+                    <div className="flex items-center justify-between mb-4 px-1">
+                        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={selectedPeople.size > 0 && selectedPeople.size === people.filter(p => !p.email).length}
+                                onChange={toggleSelectAll}
+                                className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
+                            />
+                            Select all unenriched ({people.filter(p => !p.email).length})
+                        </label>
+                        {selectedPeople.size > 0 && (
+                            <span className="text-sm text-purple-600">{selectedPeople.size} selected</span>
+                        )}
+                    </div>
+                )}
+
                 {/* People List */}
                 {people.length === 0 ? (
                     <div className="text-center py-8 text-gray-500">
@@ -794,7 +775,7 @@ export function AgencyDetail() {
                     // Flat list when searching
                     <div className="space-y-2">
                         {filteredPeople.map(person => (
-                            <PersonCard key={person.id} person={person} onDelete={handleDeletePerson} />
+                            <PersonCard key={person.id} person={person} onDelete={handleDeletePerson} isSelected={selectedPeople.has(person.id)} onToggleSelect={toggleSelectPerson} />
                         ))}
                         {filteredPeople.length === 0 && (
                             <p className="text-gray-500 text-center py-4">No people match your search</p>
@@ -830,7 +811,7 @@ export function AgencyDetail() {
                                     {expandedSections.has(Number(level)) && (
                                         <div className="space-y-2 ml-6">
                                             {levelPeople.map(person => (
-                                                <PersonCard key={person.id} person={person} onDelete={handleDeletePerson} />
+                                                <PersonCard key={person.id} person={person} onDelete={handleDeletePerson} isSelected={selectedPeople.has(person.id)} onToggleSelect={toggleSelectPerson} />
                                             ))}
                                         </div>
                                     )}
@@ -848,155 +829,35 @@ export function AgencyDetail() {
                 </div>
             )}
 
-            {/* Apollo Enrichment Modal */}
-            {showEnrichmentModal && enrichmentProgress && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col">
-                        {/* Modal Header */}
-                        <div className="flex items-center justify-between p-4 border-b">
-                            <div className="flex items-center gap-2">
-                                <Sparkles className="w-5 h-5 text-purple-600" />
-                                <h3 className="font-semibold text-lg">Apollo.io Enrichment</h3>
-                            </div>
-                            {!isEnrichingPeople && (
-                                <button
-                                    onClick={() => {
-                                        setShowEnrichmentModal(false)
-                                        setEnrichmentProgress(null)
-                                    }}
-                                    className="p-1 hover:bg-gray-100 rounded"
-                                >
-                                    <X className="w-5 h-5 text-gray-500" />
-                                </button>
-                            )}
+            {/* Enrichment Progress */}
+            {enrichmentProgress && (
+                <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-4 mt-6">
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                            <Sparkles className="w-5 h-5 text-purple-600" />
+                            <span className="font-medium text-purple-900">
+                                {isEnrichingPeople ? `Enriching ${enrichmentProgress.currentName}...` : 'Enrichment Complete'}
+                            </span>
                         </div>
-
-                        {/* Modal Body */}
-                        <div className="p-4 flex-1 overflow-y-auto">
-                            {/* Progress Stats */}
-                            <div className="grid grid-cols-3 gap-4 mb-4">
-                                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                                    <p className="text-2xl font-bold text-gray-900">
-                                        {enrichmentProgress.current}/{enrichmentProgress.total}
-                                    </p>
-                                    <p className="text-xs text-gray-500">Processed</p>
-                                </div>
-                                <div className="bg-green-50 rounded-lg p-3 text-center">
-                                    <p className="text-2xl font-bold text-green-600">{enrichmentProgress.found}</p>
-                                    <p className="text-xs text-gray-500">Found</p>
-                                </div>
-                                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                                    <p className="text-2xl font-bold text-gray-400">
-                                        {enrichmentProgress.current - enrichmentProgress.found}
-                                    </p>
-                                    <p className="text-xs text-gray-500">Not Found</p>
-                                </div>
-                            </div>
-
-                            {/* Current processing */}
-                            {isEnrichingPeople && enrichmentProgress.currentName && (
-                                <div className="mb-4 p-3 bg-purple-50 rounded-lg flex items-center gap-2">
-                                    <Loader2 className="w-4 h-4 text-purple-600 animate-spin" />
-                                    <span className="text-sm text-purple-700">
-                                        Searching for <strong>{enrichmentProgress.currentName}</strong>...
-                                    </span>
-                                </div>
-                            )}
-
-                            {/* Log list */}
-                            <div className="space-y-2">
-                                {enrichmentProgress.log.map((entry, i) => (
-                                    <div
-                                        key={i}
-                                        className={`flex items-center justify-between p-2 rounded-lg text-sm ${entry.status === 'found' ? 'bg-green-50' :
-                                            entry.status === 'not_found' ? 'bg-gray-50' :
-                                                'bg-white border border-gray-200'
-                                            }`}
-                                    >
-                                        <div className="flex items-center gap-2">
-                                            {entry.status === 'pending' && (
-                                                <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
-                                            )}
-                                            {entry.status === 'found' && (
-                                                <CheckCircle2 className="w-4 h-4 text-green-600" />
-                                            )}
-                                            {entry.status === 'not_found' && (
-                                                <X className="w-4 h-4 text-gray-400" />
-                                            )}
-                                            <span className={entry.status === 'not_found' ? 'text-gray-400' : ''}>
-                                                {entry.name}
-                                            </span>
-                                        </div>
-                                        {entry.status === 'found' && (
-                                            <div className="flex items-center gap-3 text-xs text-gray-500">
-                                                {entry.email && (
-                                                    <span className="flex items-center gap-1">
-                                                        <Mail className="w-3 h-3" />
-                                                        {entry.email.split('@')[0]}@...
-                                                    </span>
-                                                )}
-                                                {entry.phone && (
-                                                    <span className="flex items-center gap-1">
-                                                        <Phone className="w-3 h-3" />
-                                                        ✓
-                                                    </span>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Modal Footer */}
-                        <div className="p-4 border-t bg-gray-50">
-                            {!isEnrichingPeople ? (
-                                enrichmentProgress.current === 0 ? (
-                                    <div className="flex gap-3">
-                                        <Button
-                                            variant="secondary"
-                                            className="flex-1"
-                                            onClick={() => {
-                                                setShowEnrichmentModal(false)
-                                                setEnrichmentProgress(null)
-                                            }}
-                                        >
-                                            Cancel
-                                        </Button>
-                                        <Button
-                                            className="flex-1"
-                                            onClick={handleEnrichWithApollo}
-                                        >
-                                            <Sparkles className="w-4 h-4" />
-                                            Start Enriching ({enrichmentProgress.total} people)
-                                        </Button>
-                                    </div>
-                                ) : (
-                                    <div className="text-center">
-                                        <p className="text-green-600 font-medium mb-2">
-                                            ✓ Enrichment Complete
-                                        </p>
-                                        <p className="text-sm text-gray-500 mb-3">
-                                            Found data for {enrichmentProgress.found} of {enrichmentProgress.total} people
-                                        </p>
-                                        <Button
-                                            onClick={() => {
-                                                setShowEnrichmentModal(false)
-                                                setEnrichmentProgress(null)
-                                            }}
-                                        >
-                                            Done
-                                        </Button>
-                                    </div>
-                                )
-                            ) : (
-                                <div className="flex items-center justify-center gap-2 text-gray-500">
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                    <span>Enriching... {enrichmentProgress.current}/{enrichmentProgress.total}</span>
-                                </div>
-                            )}
+                        <div className="flex items-center gap-4 text-sm">
+                            <span className="text-gray-600">{enrichmentProgress.current}/{enrichmentProgress.total} processed</span>
+                            <span className="text-green-600 font-medium">{enrichmentProgress.found} found</span>
                         </div>
                     </div>
+                    <div className="w-full bg-purple-100 rounded-full h-2">
+                        <div
+                            className="bg-purple-600 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${(enrichmentProgress.current / enrichmentProgress.total) * 100}%` }}
+                        />
+                    </div>
+                    {!isEnrichingPeople && (
+                        <button
+                            onClick={() => setEnrichmentProgress(null)}
+                            className="text-sm text-purple-600 hover:text-purple-800 mt-2"
+                        >
+                            Dismiss
+                        </button>
+                    )}
                 </div>
             )}
         </div>
@@ -1004,9 +865,28 @@ export function AgencyDetail() {
 }
 
 // Person Card Component
-function PersonCard({ person, onDelete }: { person: GovPerson; onDelete?: (id: string) => void }) {
+function PersonCard({
+    person,
+    onDelete,
+    isSelected,
+    onToggleSelect
+}: {
+    person: GovPerson
+    onDelete?: (id: string) => void
+    isSelected?: boolean
+    onToggleSelect?: (id: string) => void
+}) {
     return (
         <div className="flex items-start gap-4 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+            {/* Checkbox for unenriched people */}
+            {!person.email && onToggleSelect && (
+                <input
+                    type="checkbox"
+                    checked={isSelected || false}
+                    onChange={() => onToggleSelect(person.id)}
+                    className="mt-4 w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
+                />
+            )}
             {/* Photo or placeholder */}
             <div className="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
                 {person.photo_url ? (

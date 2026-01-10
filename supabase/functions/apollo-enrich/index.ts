@@ -30,7 +30,7 @@ serve(async (req) => {
         console.log(`Apollo: Searching for ${first_name} ${last_name} at ${organization_name}`)
         
         // Step 1: Search for the person using the new API endpoint
-        const searchResponse = await fetch('https://api.apollo.io/api/v1/mixed_people/search', {
+        const searchResponse = await fetch('https://api.apollo.io/v1/mixed_people/api_search', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
