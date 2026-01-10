@@ -30,6 +30,7 @@ interface ActorInput {
     spaceId?: string;
     maxAgencies?: number;
     portfolioFilter?: string; // Optional: only scrape specific portfolio
+    startFromPortfolio?: string; // Optional: skip portfolios alphabetically before this one (for delta runs)
 }
 
 await Actor.init();
@@ -39,7 +40,8 @@ const {
     webhookUrl,
     spaceId,
     maxAgencies = 500,
-    portfolioFilter
+    portfolioFilter,
+    startFromPortfolio
 } = input;
 
 const agencies: AgencyData[] = [];
@@ -52,6 +54,7 @@ console.log(`Max agencies: ${maxAgencies}`);
 console.log(`Webhook URL: ${webhookUrl || 'NOT PROVIDED'}`);
 console.log(`Space ID: ${spaceId || 'NOT PROVIDED'}`);
 if (portfolioFilter) console.log(`Portfolio filter: ${portfolioFilter}`);
+if (startFromPortfolio) console.log(`Starting from portfolio: ${startFromPortfolio}`);
 
 // Send batch to webhook
 async function sendBatch(batch: AgencyData[], isFinal: boolean = false) {
@@ -119,15 +122,33 @@ const crawler = new PlaywrightCrawler({
                 log.info(`Page content length: ${content.length}`);
             }
             
-            // Add all portfolio pages to queue
-            for (const link of portfolioLinks) {
+            // Sort portfolios alphabetically for consistent ordering
+            const sortedPortfolioLinks = portfolioLinks.sort();
+            
+            // Add portfolio pages to queue
+            let skippedCount = 0;
+            for (const link of sortedPortfolioLinks) {
                 const fullUrl = `${BASE_URL}${link}`;
-                if (!portfolioFilter || link.includes(portfolioFilter.toLowerCase())) {
-                    await crawler.addRequests([{ 
-                        url: fullUrl, 
-                        userData: { type: 'portfolio' } 
-                    }]);
+                
+                // Skip if doesn't match portfolioFilter
+                if (portfolioFilter && !link.includes(portfolioFilter.toLowerCase())) {
+                    continue;
                 }
+                
+                // Skip portfolios alphabetically before startFromPortfolio (for delta runs)
+                if (startFromPortfolio && link.localeCompare(`/portfolios/${startFromPortfolio.toLowerCase()}`) < 0) {
+                    skippedCount++;
+                    continue;
+                }
+                
+                await crawler.addRequests([{ 
+                    url: fullUrl, 
+                    userData: { type: 'portfolio' } 
+                }]);
+            }
+            
+            if (skippedCount > 0) {
+                log.info(`Skipped ${skippedCount} portfolios (delta run from ${startFromPortfolio})`);
             }
             return;
         }
