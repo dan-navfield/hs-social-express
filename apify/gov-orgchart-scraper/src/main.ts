@@ -199,17 +199,52 @@ async function extractPeopleFromPdf(pdfUrl: string, agencyName: string): Promise
     console.log(`Downloading PDF: ${pdfUrl}`);
     
     try {
-        // First, download the PDF
-        const pdfResponse = await fetch(pdfUrl);
-        if (!pdfResponse.ok) {
-            console.error(`Failed to download PDF: ${pdfResponse.status}`);
+        // Download PDF with timeout and retry
+        let pdfBuffer: ArrayBuffer | null = null;
+        
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                console.log(`PDF download attempt ${attempt}/3...`);
+                
+                // Create AbortController for timeout
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+                
+                const pdfResponse = await fetch(pdfUrl, { 
+                    signal: controller.signal,
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (compatible; GovScraper/1.0)'
+                    }
+                });
+                clearTimeout(timeoutId);
+                
+                if (!pdfResponse.ok) {
+                    console.error(`PDF HTTP error: ${pdfResponse.status}`);
+                    return [];
+                }
+                
+                pdfBuffer = await pdfResponse.arrayBuffer();
+                console.log(`Downloaded PDF: ${pdfBuffer.byteLength} bytes`);
+                break; // Success, exit retry loop
+                
+            } catch (fetchError: any) {
+                console.error(`PDF download attempt ${attempt} failed: ${fetchError.message}`);
+                if (attempt === 3) {
+                    console.error('All PDF download attempts failed');
+                    return [];
+                }
+                // Wait before retry
+                await new Promise(r => setTimeout(r, 2000));
+            }
+        }
+        
+        if (!pdfBuffer) {
+            console.error('No PDF buffer after retries');
             return [];
         }
         
-        const pdfBuffer = await pdfResponse.arrayBuffer();
         const pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
-        
-        console.log(`Downloaded PDF: ${pdfBuffer.byteLength} bytes`);
+        console.log(`PDF base64 encoded: ${pdfBase64.length} chars`);
         
         const prompt = `You are analyzing a PDF organisational chart from an Australian government agency.
     
