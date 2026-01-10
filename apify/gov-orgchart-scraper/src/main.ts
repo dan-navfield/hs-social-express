@@ -280,7 +280,10 @@ const crawler = new PlaywrightCrawler({
                     log.info(`Found ${people.length} people at ${agencyName}`);
                     
                     // Store results
-                    const existing = results.get(agencyId) || { agency: { id: agencyId, name: agencyName, website: '' }, people: [] };
+                    let existing = results.get(agencyId);
+                    if (!existing) {
+                        existing = { agency: { id: agencyId, name: agencyName, website: '' }, people: [] as ExtractedPerson[], orgChartUrl: undefined };
+                    }
                     existing.people.push(...people);
                     existing.orgChartUrl = url;
                     results.set(agencyId, existing);
