@@ -785,6 +785,103 @@ export function AgencyDetail() {
                     </div>
                 )}
 
+                {/* Enrichment Progress Panel */}
+                {enrichmentProgress && (
+                    <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg p-4 mb-4">
+                        {/* Header */}
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                                {isEnrichingPeople ? (
+                                    <Loader2 className="w-5 h-5 text-purple-600 animate-spin" />
+                                ) : (
+                                    <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
+                                        <span className="text-white text-xs">✓</span>
+                                    </div>
+                                )}
+                                <span className="font-medium text-gray-900">
+                                    {isEnrichingPeople ? `Searching Apollo for ${enrichmentProgress.currentName}...` : 'Enrichment Complete!'}
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-3 text-sm">
+                                <span className="text-green-600 font-medium">{enrichmentProgress.found} found</span>
+                                <span className="text-gray-500">{enrichmentProgress.current}/{enrichmentProgress.total}</span>
+                                {!isEnrichingPeople && (
+                                    <button
+                                        onClick={() => setEnrichmentProgress(null)}
+                                        className="p-1 hover:bg-purple-100 rounded"
+                                    >
+                                        <X className="w-4 h-4 text-gray-500" />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="w-full bg-purple-100 rounded-full h-2 mb-3">
+                            <div
+                                className="bg-gradient-to-r from-purple-500 to-indigo-600 h-2 rounded-full transition-all duration-300"
+                                style={{ width: `${(enrichmentProgress.current / enrichmentProgress.total) * 100}%` }}
+                            />
+                        </div>
+
+                        {/* Live Log */}
+                        <div className="bg-white rounded-lg border border-purple-100 max-h-48 overflow-y-auto">
+                            <div className="divide-y divide-gray-100">
+                                {enrichmentProgress.log.map((entry, i) => (
+                                    <div key={i} className={`flex items-center justify-between p-2 text-sm ${entry.status === 'searching' ? 'bg-purple-50' : ''
+                                        }`}>
+                                        <div className="flex items-center gap-2">
+                                            {entry.status === 'pending' && (
+                                                <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
+                                            )}
+                                            {entry.status === 'searching' && (
+                                                <Loader2 className="w-4 h-4 text-purple-600 animate-spin" />
+                                            )}
+                                            {entry.status === 'found' && (
+                                                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                            )}
+                                            {(entry.status === 'not_found' || entry.status === 'error') && (
+                                                <X className="w-4 h-4 text-gray-400" />
+                                            )}
+                                            <span className={`${entry.status === 'not_found' || entry.status === 'error' ? 'text-gray-400' :
+                                                entry.status === 'found' ? 'text-green-700' :
+                                                    'text-gray-900'
+                                                }`}>
+                                                {entry.name}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-1 text-xs">
+                                            {entry.status === 'found' && (
+                                                <>
+                                                    {entry.email && (
+                                                        <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded">
+                                                            <Mail className="w-3 h-3 inline" /> {entry.email.length > 20 ? entry.email.slice(0, 20) + '...' : entry.email}
+                                                        </span>
+                                                    )}
+                                                    {entry.phone && (
+                                                        <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">
+                                                            <Phone className="w-3 h-3 inline" />
+                                                        </span>
+                                                    )}
+                                                </>
+                                            )}
+                                            {entry.status === 'searching' && (
+                                                <span className="text-purple-600">Searching...</span>
+                                            )}
+                                            {entry.status === 'not_found' && (
+                                                <span className="text-gray-400">Not found</span>
+                                            )}
+                                            {entry.status === 'error' && (
+                                                <span className="text-red-500">{entry.message}</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Search people */}
                 <div className="relative mb-4">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -881,155 +978,6 @@ export function AgencyDetail() {
                 <div className="bg-white rounded-xl border border-gray-200 p-6">
                     <h2 className="font-semibold text-gray-900 mb-4">Notes</h2>
                     <p className="text-gray-700 whitespace-pre-wrap">{agency.notes}</p>
-                </div>
-            )}
-
-            {/* Enrichment Progress */}
-            {enrichmentProgress && (
-                <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-6 mt-6">
-                    {/* Header */}
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-purple-100 rounded-lg">
-                                <Sparkles className="w-6 h-6 text-purple-600" />
-                            </div>
-                            <div>
-                                <h3 className="font-semibold text-purple-900 text-lg">Apollo.io Enrichment</h3>
-                                <span className="text-sm text-purple-700">
-                                    {isEnrichingPeople ? `Searching for ${enrichmentProgress.currentName}...` : 'Enrichment Complete'}
-                                </span>
-                            </div>
-                        </div>
-                        {!isEnrichingPeople && (
-                            <button
-                                onClick={() => setEnrichmentProgress(null)}
-                                className="p-2 hover:bg-purple-100 rounded-lg transition-colors"
-                            >
-                                <X className="w-5 h-5 text-purple-600" />
-                            </button>
-                        )}
-                    </div>
-
-                    {/* Stats Cards */}
-                    <div className="grid grid-cols-4 gap-3 mb-4">
-                        <div className="bg-white rounded-lg p-3 text-center border border-purple-100">
-                            <p className="text-2xl font-bold text-purple-600">{enrichmentProgress.current}</p>
-                            <p className="text-xs text-gray-500">Processed</p>
-                        </div>
-                        <div className="bg-white rounded-lg p-3 text-center border border-purple-100">
-                            <p className="text-2xl font-bold text-gray-400">{enrichmentProgress.total - enrichmentProgress.current}</p>
-                            <p className="text-xs text-gray-500">Remaining</p>
-                        </div>
-                        <div className="bg-white rounded-lg p-3 text-center border border-green-100">
-                            <p className="text-2xl font-bold text-green-600">{enrichmentProgress.found}</p>
-                            <p className="text-xs text-gray-500">Found</p>
-                        </div>
-                        <div className="bg-white rounded-lg p-3 text-center border border-gray-100">
-                            <p className="text-2xl font-bold text-gray-400">{enrichmentProgress.current - enrichmentProgress.found}</p>
-                            <p className="text-xs text-gray-500">Not Found</p>
-                        </div>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div className="mb-4">
-                        <div className="flex justify-between text-xs text-gray-500 mb-1">
-                            <span>Progress</span>
-                            <span>{Math.round((enrichmentProgress.current / enrichmentProgress.total) * 100)}%</span>
-                        </div>
-                        <div className="w-full bg-purple-100 rounded-full h-3">
-                            <div
-                                className="bg-gradient-to-r from-purple-500 to-indigo-600 h-3 rounded-full transition-all duration-300"
-                                style={{ width: `${(enrichmentProgress.current / enrichmentProgress.total) * 100}%` }}
-                            />
-                        </div>
-                    </div>
-
-                    {/* Detailed Log */}
-                    <div className="bg-white rounded-lg border border-purple-100 max-h-64 overflow-y-auto">
-                        <div className="p-2 bg-gray-50 border-b border-gray-100 sticky top-0">
-                            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Live Enrichment Log</span>
-                        </div>
-                        <div className="divide-y divide-gray-100">
-                            {enrichmentProgress.log.map((entry, i) => (
-                                <div key={i} className={`flex items-center justify-between p-3 ${entry.status === 'searching' ? 'bg-purple-50' : ''
-                                    }`}>
-                                    <div className="flex items-center gap-3">
-                                        {entry.status === 'pending' && (
-                                            <div className="w-5 h-5 rounded-full border-2 border-gray-300" />
-                                        )}
-                                        {entry.status === 'searching' && (
-                                            <Loader2 className="w-5 h-5 text-purple-600 animate-spin" />
-                                        )}
-                                        {entry.status === 'found' && (
-                                            <CheckCircle2 className="w-5 h-5 text-green-600" />
-                                        )}
-                                        {entry.status === 'not_found' && (
-                                            <X className="w-5 h-5 text-gray-400" />
-                                        )}
-                                        {entry.status === 'error' && (
-                                            <X className="w-5 h-5 text-red-500" />
-                                        )}
-                                        <span className={`font-medium ${entry.status === 'not_found' ? 'text-gray-400' :
-                                                entry.status === 'error' ? 'text-red-600' :
-                                                    entry.status === 'found' ? 'text-green-700' :
-                                                        'text-gray-900'
-                                            }`}>
-                                            {entry.name}
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-xs">
-                                        {entry.status === 'found' && (
-                                            <>
-                                                {entry.email && (
-                                                    <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded">
-                                                        <Mail className="w-3 h-3" />
-                                                        {entry.email.length > 25 ? entry.email.slice(0, 25) + '...' : entry.email}
-                                                    </span>
-                                                )}
-                                                {entry.phone && (
-                                                    <span className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded">
-                                                        <Phone className="w-3 h-3" />
-                                                        ✓
-                                                    </span>
-                                                )}
-                                                {entry.linkedin && (
-                                                    <span className="flex items-center gap-1 px-2 py-1 bg-sky-100 text-sky-700 rounded">
-                                                        <Linkedin className="w-3 h-3" />
-                                                        ✓
-                                                    </span>
-                                                )}
-                                            </>
-                                        )}
-                                        {entry.status === 'error' && entry.message && (
-                                            <span className="text-red-500">{entry.message}</span>
-                                        )}
-                                        {entry.status === 'not_found' && (
-                                            <span className="text-gray-400">No data found</span>
-                                        )}
-                                        {entry.status === 'searching' && (
-                                            <span className="text-purple-600">Searching Apollo...</span>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Summary Footer */}
-                    {!isEnrichingPeople && (
-                        <div className="mt-4 pt-4 border-t border-purple-200 flex items-center justify-between">
-                            <div className="text-sm text-purple-700">
-                                ✓ Enriched {enrichmentProgress.found} of {enrichmentProgress.total} people
-                            </div>
-                            <Button
-                                onClick={() => setEnrichmentProgress(null)}
-                                variant="primary"
-                                size="sm"
-                            >
-                                Done
-                            </Button>
-                        </div>
-                    )}
                 </div>
             )}
         </div>
