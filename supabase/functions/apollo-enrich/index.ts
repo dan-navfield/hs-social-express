@@ -27,10 +27,10 @@ serve(async (req) => {
     try {
         const { first_name, last_name, organization_name, domain, title } = await req.json() as EnrichRequest
         
-        console.log(`Apollo: Searching for ${first_name} ${last_name} at ${organization_name}`)
+        console.log(`Apollo: Enriching ${first_name} ${last_name} at ${organization_name}`)
         
-        // Step 1: Search for the person using the new API endpoint
-        const searchResponse = await fetch('https://api.apollo.io/v1/mixed_people/api_search', {
+        // Try direct enrichment first - this is the most reliable when we have good data
+        const enrichResponse = await fetch('https://api.apollo.io/v1/people/match', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -38,12 +38,60 @@ serve(async (req) => {
                 'X-Api-Key': APOLLO_API_KEY
             },
             body: JSON.stringify({
-                q_organization_domains: domain || undefined,
-                q_organization_name: organization_name,
+                first_name: first_name,
+                last_name: last_name,
+                organization_name: organization_name,
+                domain: domain || undefined,
+                reveal_personal_emails: true,
+                reveal_phone_number: true
+            })
+        })
+        
+        if (enrichResponse.ok) {
+            const enrichData = await enrichResponse.json()
+            
+            if (enrichData.person) {
+                const p = enrichData.person
+                console.log(`Apollo: Direct match found for ${first_name} ${last_name}`)
+                
+                // Extract mobile phone if available
+                let phone = null
+                if (p.phone_numbers?.length > 0) {
+                    const mobile = p.phone_numbers.find((ph: { type?: string }) => ph.type === 'mobile')
+                    phone = mobile?.sanitized_number || p.phone_numbers[0]?.sanitized_number
+                }
+                
+                return new Response(
+                    JSON.stringify({
+                        person: {
+                            email: p.email || null,
+                            phone: phone,
+                            linkedin_url: p.linkedin_url || null,
+                            photo_url: p.photo_url || null
+                        }
+                    }),
+                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                )
+            }
+        }
+        
+        // If direct enrichment didn't work, try search
+        console.log(`Apollo: Direct match failed, trying search...`)
+        
+        const searchResponse = await fetch('https://api.apollo.io/v1/people/search', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-cache',
+                'X-Api-Key': APOLLO_API_KEY
+            },
+            body: JSON.stringify({
                 person_titles: title ? [title] : undefined,
-                q_keywords: `${first_name} ${last_name}`,
+                q_organization_name: organization_name,
+                organization_domains: domain ? [domain] : undefined,
                 page: 1,
-                per_page: 5
+                per_page: 5,
+                person_names: [`${first_name} ${last_name}`]
             })
         })
         
@@ -51,8 +99,8 @@ serve(async (req) => {
             const errorText = await searchResponse.text()
             console.error('Apollo search failed:', errorText)
             return new Response(
-                JSON.stringify({ error: 'Search failed', details: errorText }),
-                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                JSON.stringify({ person: null, message: 'No match found' }),
+                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             )
         }
         
@@ -61,7 +109,7 @@ serve(async (req) => {
         
         // Find best match
         const matchedPerson = searchData.people?.find((p: { first_name?: string; last_name?: string }) =>
-            p.first_name?.toLowerCase() === first_name.toLowerCase() ||
+            p.first_name?.toLowerCase() === first_name.toLowerCase() &&
             p.last_name?.toLowerCase() === last_name.toLowerCase()
         ) || searchData.people?.[0]
         
@@ -74,8 +122,8 @@ serve(async (req) => {
         
         console.log(`Apollo: Found match ID ${matchedPerson.id}`)
         
-        // Step 2: Enrich by ID
-        const enrichResponse = await fetch('https://api.apollo.io/v1/people/match', {
+        // Enrich the matched person by ID
+        const detailResponse = await fetch('https://api.apollo.io/v1/people/match', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -89,21 +137,18 @@ serve(async (req) => {
             })
         })
         
-        if (!enrichResponse.ok) {
-            const errorText = await enrichResponse.text()
-            console.error('Apollo enrichment failed:', errorText)
+        if (!detailResponse.ok) {
             return new Response(
-                JSON.stringify({ error: 'Enrichment failed', details: errorText }),
-                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                JSON.stringify({ person: null, message: 'Enrichment failed' }),
+                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             )
         }
         
-        const enrichData = await enrichResponse.json()
+        const detailData = await detailResponse.json()
         
-        if (enrichData.person) {
-            const p = enrichData.person
+        if (detailData.person) {
+            const p = detailData.person
             
-            // Extract mobile phone if available
             let phone = null
             if (p.phone_numbers?.length > 0) {
                 const mobile = p.phone_numbers.find((ph: { type?: string }) => ph.type === 'mobile')
