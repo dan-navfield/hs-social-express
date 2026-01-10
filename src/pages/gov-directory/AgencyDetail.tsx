@@ -56,6 +56,8 @@ interface ExtractionProgress {
     pagesProcessed: number
     peopleFound: number
     elapsedSeconds: number
+    logs: string[]
+    showLogs: boolean
 }
 
 interface GovPerson {
@@ -205,29 +207,66 @@ export function AgencyDetail() {
                 startedAt: new Date().toISOString(),
                 pagesProcessed: 0,
                 peopleFound: 0,
-                elapsedSeconds: 0
+                elapsedSeconds: 0,
+                logs: ['Starting extraction...'],
+                showLogs: false
             })
 
-            // Poll for status updates
+            // Poll for status and log updates
             const startTime = Date.now()
             const pollInterval = setInterval(async () => {
                 try {
+                    // Fetch run status
                     const statusResponse = await fetch(
                         `https://api.apify.com/v2/acts/verifiable_hare~orgchart-scraper/runs/${runId}?token=${apifyToken}`
                     )
+
+                    // Fetch logs
+                    const logResponse = await fetch(
+                        `https://api.apify.com/v2/acts/verifiable_hare~orgchart-scraper/runs/${runId}/log?token=${apifyToken}`
+                    )
+
+                    let logLines: string[] = []
+                    if (logResponse.ok) {
+                        const logText = await logResponse.text()
+                        // Get last 50 lines, filter to important ones
+                        logLines = logText.split('\n')
+                            .filter(line => line.trim())
+                            .filter(line =>
+                                line.includes('INFO') ||
+                                line.includes('WARN') ||
+                                line.includes('ERROR') ||
+                                line.includes('===') ||
+                                line.includes('Found') ||
+                                line.includes('Extracted') ||
+                                line.includes('Processing') ||
+                                line.includes('Downloading') ||
+                                line.includes('Sent')
+                            )
+                            .slice(-30)
+                            .map(line => {
+                                // Clean up timestamp and log level
+                                return line.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, '')
+                                    .replace(/INFO\s+PlaywrightCrawler:\s*/, '▸ ')
+                                    .replace(/WARN\s+PlaywrightCrawler:\s*/, '⚠ ')
+                                    .replace(/ERROR\s*/, '✗ ')
+                            })
+                    }
 
                     if (statusResponse.ok) {
                         const statusData = await statusResponse.json()
                         const run = statusData.data
 
-                        setExtractionProgress({
+                        setExtractionProgress(prev => ({
                             runId,
                             status: run.status,
                             startedAt: run.startedAt,
                             pagesProcessed: run.stats?.requestsFinished || 0,
                             peopleFound: people.length,
-                            elapsedSeconds: Math.floor((Date.now() - startTime) / 1000)
-                        })
+                            elapsedSeconds: Math.floor((Date.now() - startTime) / 1000),
+                            logs: logLines.length > 0 ? logLines : (prev?.logs || []),
+                            showLogs: prev?.showLogs || false
+                        }))
 
                         // Stop polling when run is complete
                         if (run.status === 'SUCCEEDED' || run.status === 'FAILED' || run.status === 'ABORTED') {
@@ -243,7 +282,7 @@ export function AgencyDetail() {
                 } catch (err) {
                     console.error('Failed to poll status:', err)
                 }
-            }, 3000) // Poll every 3 seconds
+            }, 2000) // Poll every 2 seconds
 
         } catch (err) {
             console.error('Failed to start extraction:', err)
@@ -516,6 +555,36 @@ export function AgencyDetail() {
                                 ✓ Extracted data saved. Refreshing...
                             </div>
                         )}
+
+                        {/* Expandable Log Panel */}
+                        <div className="mt-3">
+                            <button
+                                onClick={() => setExtractionProgress(prev => prev ? { ...prev, showLogs: !prev.showLogs } : null)}
+                                className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                            >
+                                <span className={`transform transition-transform ${extractionProgress.showLogs ? 'rotate-180' : ''}`}>
+                                    ▼
+                                </span>
+                                <span>Live Crawl Log ({extractionProgress.logs.length} entries)</span>
+                            </button>
+
+                            {extractionProgress.showLogs && (
+                                <div className="mt-2 bg-gray-900 rounded-lg p-3 max-h-64 overflow-y-auto font-mono text-xs">
+                                    {extractionProgress.logs.map((line, i) => (
+                                        <div
+                                            key={i}
+                                            className={`py-0.5 ${line.startsWith('⚠') ? 'text-yellow-400' :
+                                                    line.startsWith('✗') ? 'text-red-400' :
+                                                        line.includes('Extracted') || line.includes('Found') ? 'text-green-400' :
+                                                            'text-gray-300'
+                                                }`}
+                                        >
+                                            {line}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
 
