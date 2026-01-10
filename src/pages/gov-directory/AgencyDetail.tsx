@@ -21,7 +21,10 @@ import {
     AlertCircle,
     FileText,
     Edit2,
-    Trash2
+    Trash2,
+    X,
+    CheckCircle2,
+    Sparkles
 } from 'lucide-react'
 import { Button } from '@/components/ui'
 import { useSpaceStore } from '@/stores/spaceStore'
@@ -91,8 +94,15 @@ export function AgencyDetail() {
 
     const [isDiscoveringOrgChart, setIsDiscoveringOrgChart] = useState(false)
     const [isScrapingPeople, setIsScrapingPeople] = useState(false)
+    const [showEnrichmentModal, setShowEnrichmentModal] = useState(false)
     const [isEnrichingPeople, setIsEnrichingPeople] = useState(false)
-    const [enrichmentProgress, setEnrichmentProgress] = useState<{ current: number; total: number; found: number } | null>(null)
+    const [enrichmentProgress, setEnrichmentProgress] = useState<{
+        current: number
+        total: number
+        found: number
+        currentName: string
+        log: Array<{ name: string; status: 'pending' | 'found' | 'not_found'; email?: string; phone?: string }>
+    } | null>(null)
     const [extractionProgress, setExtractionProgress] = useState<ExtractionProgress | null>(null)
     const [searchQuery, setSearchQuery] = useState('')
     const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set([1, 2, 3]))
@@ -170,22 +180,31 @@ export function AgencyDetail() {
         }
     }
 
-    const handleEnrichWithApollo = async () => {
-        if (!agency) return
-
-        // Only enrich people without email
+    const startEnrichment = () => {
         const peopleToEnrich = people.filter(p => !p.email)
         if (peopleToEnrich.length === 0) {
             alert('All people already have email addresses!')
             return
         }
 
-        if (!confirm(`Enrich ${peopleToEnrich.length} people with Apollo.io? This will use API credits.`)) {
-            return
-        }
+        // Initialize the log with all people as pending
+        setEnrichmentProgress({
+            current: 0,
+            total: peopleToEnrich.length,
+            found: 0,
+            currentName: '',
+            log: peopleToEnrich.map(p => ({ name: p.name, status: 'pending' as const }))
+        })
+        setShowEnrichmentModal(true)
+    }
+
+    const handleEnrichWithApollo = async () => {
+        if (!agency) return
+
+        // Only enrich people without email
+        const peopleToEnrich = people.filter(p => !p.email)
 
         setIsEnrichingPeople(true)
-        setEnrichmentProgress({ current: 0, total: peopleToEnrich.length, found: 0 })
 
         // Get domain from agency website
         let domain = ''
@@ -200,7 +219,12 @@ export function AgencyDetail() {
 
         for (let i = 0; i < peopleToEnrich.length; i++) {
             const person = peopleToEnrich[i]
-            setEnrichmentProgress({ current: i + 1, total: peopleToEnrich.length, found: foundCount })
+
+            setEnrichmentProgress(prev => prev ? {
+                ...prev,
+                current: i + 1,
+                currentName: person.name
+            } : null)
 
             try {
                 // Split name into first/last
@@ -235,9 +259,18 @@ export function AgencyDetail() {
                         // Update database with enriched data
                         const updates: Record<string, string | null> = {}
                         if (apolloPerson.email) updates.email = apolloPerson.email
-                        if (apolloPerson.phone_numbers?.[0]?.sanitized_number) {
-                            updates.phone = apolloPerson.phone_numbers[0].sanitized_number
+
+                        // Get phone - prioritize mobile over other types
+                        if (apolloPerson.phone_numbers?.length > 0) {
+                            const mobilePhone = apolloPerson.phone_numbers.find(
+                                (p: { type?: string }) => p.type === 'mobile'
+                            )
+                            const phone = mobilePhone || apolloPerson.phone_numbers[0]
+                            if (phone?.sanitized_number) {
+                                updates.phone = phone.sanitized_number
+                            }
                         }
+
                         if (apolloPerson.linkedin_url) updates.linkedin_url = apolloPerson.linkedin_url
                         if (apolloPerson.photo_url) updates.photo_url = apolloPerson.photo_url
 
@@ -253,13 +286,52 @@ export function AgencyDetail() {
                             setPeople(prev => prev.map(p =>
                                 p.id === person.id ? { ...p, ...updates } : p
                             ))
+
+                            // Update log with found status
+                            setEnrichmentProgress(prev => prev ? {
+                                ...prev,
+                                found: foundCount,
+                                log: prev.log.map(l =>
+                                    l.name === person.name
+                                        ? { ...l, status: 'found' as const, email: updates.email || undefined, phone: updates.phone || undefined }
+                                        : l
+                                )
+                            } : null)
+                        } else {
+                            // No data found
+                            setEnrichmentProgress(prev => prev ? {
+                                ...prev,
+                                log: prev.log.map(l =>
+                                    l.name === person.name ? { ...l, status: 'not_found' as const } : l
+                                )
+                            } : null)
                         }
+                    } else {
+                        // No match in Apollo
+                        setEnrichmentProgress(prev => prev ? {
+                            ...prev,
+                            log: prev.log.map(l =>
+                                l.name === person.name ? { ...l, status: 'not_found' as const } : l
+                            )
+                        } : null)
                     }
                 } else {
                     console.error('Apollo API error:', await response.text())
+                    setEnrichmentProgress(prev => prev ? {
+                        ...prev,
+                        log: prev.log.map(l =>
+                            l.name === person.name ? { ...l, status: 'not_found' as const } : l
+                        )
+                    } : null)
                 }
             } catch (err) {
                 console.error(`Failed to enrich ${person.name}:`, err)
+                setEnrichmentProgress(prev => prev ? {
+                    ...prev,
+                    log: prev.log.map(l =>
+                        l.name === person.name ? { ...l, status: 'not_found' as const } : l
+                    )
+                } : null)
             }
 
             // Small delay to avoid rate limiting
@@ -267,8 +339,6 @@ export function AgencyDetail() {
         }
 
         setIsEnrichingPeople(false)
-        setEnrichmentProgress(null)
-        alert(`Enrichment complete! Found data for ${foundCount} of ${peopleToEnrich.length} people.`)
     }
 
     const handleDiscoverOrgChart = async () => {
@@ -612,21 +682,12 @@ export function AgencyDetail() {
                         <Button
                             variant="secondary"
                             size="sm"
-                            onClick={handleEnrichWithApollo}
+                            onClick={startEnrichment}
                             disabled={isEnrichingPeople || people.length === 0}
                             title="Enrich people with Apollo.io to find emails, phones, and LinkedIn"
                         >
-                            {isEnrichingPeople ? (
-                                <>
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                    {enrichmentProgress ? `${enrichmentProgress.current}/${enrichmentProgress.total}` : 'Enriching...'}
-                                </>
-                            ) : (
-                                <>
-                                    <Mail className="w-4 h-4" />
-                                    Enrich (Apollo)
-                                </>
-                            )}
+                            <Sparkles className="w-4 h-4" />
+                            Enrich (Apollo)
                         </Button>
                     </div>
                 </div>
@@ -794,6 +855,158 @@ export function AgencyDetail() {
                 <div className="bg-white rounded-xl border border-gray-200 p-6">
                     <h2 className="font-semibold text-gray-900 mb-4">Notes</h2>
                     <p className="text-gray-700 whitespace-pre-wrap">{agency.notes}</p>
+                </div>
+            )}
+
+            {/* Apollo Enrichment Modal */}
+            {showEnrichmentModal && enrichmentProgress && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col">
+                        {/* Modal Header */}
+                        <div className="flex items-center justify-between p-4 border-b">
+                            <div className="flex items-center gap-2">
+                                <Sparkles className="w-5 h-5 text-purple-600" />
+                                <h3 className="font-semibold text-lg">Apollo.io Enrichment</h3>
+                            </div>
+                            {!isEnrichingPeople && (
+                                <button
+                                    onClick={() => {
+                                        setShowEnrichmentModal(false)
+                                        setEnrichmentProgress(null)
+                                    }}
+                                    className="p-1 hover:bg-gray-100 rounded"
+                                >
+                                    <X className="w-5 h-5 text-gray-500" />
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="p-4 flex-1 overflow-y-auto">
+                            {/* Progress Stats */}
+                            <div className="grid grid-cols-3 gap-4 mb-4">
+                                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                                    <p className="text-2xl font-bold text-gray-900">
+                                        {enrichmentProgress.current}/{enrichmentProgress.total}
+                                    </p>
+                                    <p className="text-xs text-gray-500">Processed</p>
+                                </div>
+                                <div className="bg-green-50 rounded-lg p-3 text-center">
+                                    <p className="text-2xl font-bold text-green-600">{enrichmentProgress.found}</p>
+                                    <p className="text-xs text-gray-500">Found</p>
+                                </div>
+                                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                                    <p className="text-2xl font-bold text-gray-400">
+                                        {enrichmentProgress.current - enrichmentProgress.found}
+                                    </p>
+                                    <p className="text-xs text-gray-500">Not Found</p>
+                                </div>
+                            </div>
+
+                            {/* Current processing */}
+                            {isEnrichingPeople && enrichmentProgress.currentName && (
+                                <div className="mb-4 p-3 bg-purple-50 rounded-lg flex items-center gap-2">
+                                    <Loader2 className="w-4 h-4 text-purple-600 animate-spin" />
+                                    <span className="text-sm text-purple-700">
+                                        Searching for <strong>{enrichmentProgress.currentName}</strong>...
+                                    </span>
+                                </div>
+                            )}
+
+                            {/* Log list */}
+                            <div className="space-y-2">
+                                {enrichmentProgress.log.map((entry, i) => (
+                                    <div
+                                        key={i}
+                                        className={`flex items-center justify-between p-2 rounded-lg text-sm ${entry.status === 'found' ? 'bg-green-50' :
+                                                entry.status === 'not_found' ? 'bg-gray-50' :
+                                                    'bg-white border border-gray-200'
+                                            }`}
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            {entry.status === 'pending' && (
+                                                <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
+                                            )}
+                                            {entry.status === 'found' && (
+                                                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                            )}
+                                            {entry.status === 'not_found' && (
+                                                <X className="w-4 h-4 text-gray-400" />
+                                            )}
+                                            <span className={entry.status === 'not_found' ? 'text-gray-400' : ''}>
+                                                {entry.name}
+                                            </span>
+                                        </div>
+                                        {entry.status === 'found' && (
+                                            <div className="flex items-center gap-3 text-xs text-gray-500">
+                                                {entry.email && (
+                                                    <span className="flex items-center gap-1">
+                                                        <Mail className="w-3 h-3" />
+                                                        {entry.email.split('@')[0]}@...
+                                                    </span>
+                                                )}
+                                                {entry.phone && (
+                                                    <span className="flex items-center gap-1">
+                                                        <Phone className="w-3 h-3" />
+                                                        ✓
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-4 border-t bg-gray-50">
+                            {!isEnrichingPeople ? (
+                                enrichmentProgress.current === 0 ? (
+                                    <div className="flex gap-3">
+                                        <Button
+                                            variant="secondary"
+                                            className="flex-1"
+                                            onClick={() => {
+                                                setShowEnrichmentModal(false)
+                                                setEnrichmentProgress(null)
+                                            }}
+                                        >
+                                            Cancel
+                                        </Button>
+                                        <Button
+                                            className="flex-1"
+                                            onClick={handleEnrichWithApollo}
+                                        >
+                                            <Sparkles className="w-4 h-4" />
+                                            Start Enriching ({enrichmentProgress.total} people)
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <div className="text-center">
+                                        <p className="text-green-600 font-medium mb-2">
+                                            ✓ Enrichment Complete
+                                        </p>
+                                        <p className="text-sm text-gray-500 mb-3">
+                                            Found data for {enrichmentProgress.found} of {enrichmentProgress.total} people
+                                        </p>
+                                        <Button
+                                            onClick={() => {
+                                                setShowEnrichmentModal(false)
+                                                setEnrichmentProgress(null)
+                                            }}
+                                        >
+                                            Done
+                                        </Button>
+                                    </div>
+                                )
+                            ) : (
+                                <div className="flex items-center justify-center gap-2 text-gray-500">
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    <span>Enriching... {enrichmentProgress.current}/{enrichmentProgress.total}</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
