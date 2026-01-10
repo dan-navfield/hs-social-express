@@ -229,28 +229,23 @@ export function AgencyDetail() {
                     let logLines: string[] = []
                     if (logResponse.ok) {
                         const logText = await logResponse.text()
-                        // Get last 50 lines, filter to important ones
+                        // Get all non-empty lines, take last 40
                         logLines = logText.split('\n')
-                            .filter(line => line.trim())
-                            .filter(line =>
-                                line.includes('INFO') ||
-                                line.includes('WARN') ||
-                                line.includes('ERROR') ||
-                                line.includes('===') ||
-                                line.includes('Found') ||
-                                line.includes('Extracted') ||
-                                line.includes('Processing') ||
-                                line.includes('Downloading') ||
-                                line.includes('Sent')
-                            )
-                            .slice(-30)
+                            .filter(line => line.trim().length > 10) // Filter tiny lines
+                            .slice(-40)
                             .map(line => {
-                                // Clean up timestamp and log level
-                                return line.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, '')
-                                    .replace(/INFO\s+PlaywrightCrawler:\s*/, '▸ ')
-                                    .replace(/WARN\s+PlaywrightCrawler:\s*/, '⚠ ')
-                                    .replace(/ERROR\s*/, '✗ ')
+                                // Clean up timestamp (handles both Z and numeric formats)
+                                return line
+                                    .replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s*/, '')
+                                    .replace(/INFO\s+PlaywrightCrawler:\s*/g, '▸ ')
+                                    .replace(/INFO\s+/g, '• ')
+                                    .replace(/WARN\s+PlaywrightCrawler:\s*/g, '⚠ ')
+                                    .replace(/WARN\s+/g, '⚠ ')
+                                    .replace(/ERROR\s*/g, '✗ ')
+                                    .replace(/PlaywrightCrawler:\s*/g, '')
+                                    .trim()
                             })
+                            .filter(line => line.length > 5) // Filter lines that became empty after cleanup
                     }
 
                     if (statusResponse.ok) {
@@ -574,9 +569,9 @@ export function AgencyDetail() {
                                         <div
                                             key={i}
                                             className={`py-0.5 ${line.startsWith('⚠') ? 'text-yellow-400' :
-                                                    line.startsWith('✗') ? 'text-red-400' :
-                                                        line.includes('Extracted') || line.includes('Found') ? 'text-green-400' :
-                                                            'text-gray-300'
+                                                line.startsWith('✗') ? 'text-red-400' :
+                                                    line.includes('Extracted') || line.includes('Found') ? 'text-green-400' :
+                                                        'text-gray-300'
                                                 }`}
                                         >
                                             {line}
