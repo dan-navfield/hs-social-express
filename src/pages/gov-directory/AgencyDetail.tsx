@@ -141,12 +141,60 @@ export function AgencyDetail() {
     }
 
     const handleScrapePeople = async () => {
+        if (!agency) return
+
+        // Get Apify token
+        const apifyToken = localStorage.getItem('apify_token')
+        if (!apifyToken) {
+            alert('Please set your Apify API token first (go to Directory page and click Sync)')
+            return
+        }
+
+        // Get Gemini key from prompt (or could be stored)
+        const geminiKey = prompt('Enter your Gemini API key for AI extraction:')
+        if (!geminiKey) {
+            return
+        }
+
         setIsScrapingPeople(true)
-        // TODO: Implement people scraping
-        setTimeout(() => {
+
+        try {
+            const actorName = 'verifiable_hare~orgchart-scraper'
+            const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gov-people-sync`
+
+            const response = await fetch(`https://api.apify.com/v2/acts/${actorName}/runs?token=${apifyToken}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    webhookUrl,
+                    geminiApiKey: geminiKey,
+                    agencies: [{
+                        id: agency.id,
+                        name: agency.name,
+                        website: agency.website
+                    }],
+                    maxAgencies: 1
+                })
+            })
+
+            if (!response.ok) {
+                throw new Error(`API error: ${await response.text()}`)
+            }
+
+            const data = await response.json()
+            alert(`Extraction started! Run ID: ${data.data.id}\n\nCheck Apify console for progress. People will appear here once extracted.`)
+
+            // Refresh after a delay
+            setTimeout(() => {
+                fetchAgencyDetails()
+            }, 30000)
+
+        } catch (err) {
+            console.error('Failed to start extraction:', err)
+            alert(`Failed to start extraction: ${err}`)
+        } finally {
             setIsScrapingPeople(false)
-            alert('People scraping coming soon! Will extract key executives from org chart page.')
-        }, 1000)
+        }
     }
 
     // Group people by seniority level
@@ -344,7 +392,7 @@ export function AgencyDetail() {
                         <Button
                             size="sm"
                             onClick={handleScrapePeople}
-                            disabled={isScrapingPeople || !agency.org_chart_url}
+                            disabled={isScrapingPeople || !agency.website}
                         >
                             {isScrapingPeople ? (
                                 <>
