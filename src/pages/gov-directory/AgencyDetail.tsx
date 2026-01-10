@@ -150,6 +150,21 @@ export function AgencyDetail() {
         }
     }
 
+    const handleDeletePerson = async (personId: string) => {
+        if (!confirm('Delete this person?')) return
+
+        const { error } = await supabase
+            .from('gov_agency_people')
+            .delete()
+            .eq('id', personId)
+
+        if (error) {
+            alert('Failed to delete: ' + error.message)
+        } else {
+            setPeople(prev => prev.filter(p => p.id !== personId))
+        }
+    }
+
     const handleDiscoverOrgChart = async () => {
         setIsDiscoveringOrgChart(true)
         // TODO: Implement org chart discovery via Google Search API
@@ -230,21 +245,11 @@ export function AgencyDetail() {
 
                         if (logResponse.ok) {
                             const logText = await logResponse.text()
-                            console.log('Apify log length:', logText.length)
 
-                            // Split into lines and take last 50
-                            const allLines = logText.split('\n').filter(line => line.trim())
-                            logLines = allLines.slice(-50).map(line => {
-                                // Clean up timestamp
-                                return line
-                                    .replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s*/, '')
-                                    .replace(/ACTOR:\s*/g, '🔹 ')
-                                    .replace(/INFO\s+PlaywrightCrawler:\s*/g, '▸ ')
-                                    .replace(/INFO\s+/g, '• ')
-                                    .replace(/WARN\s+/g, '⚠ ')
-                                    .replace(/ERROR\s*/g, '✗ ')
-                                    .trim()
-                            }).filter(line => line.length > 3)
+                            // Just split into lines and take last 50 - show raw logs
+                            logLines = logText.split('\n')
+                                .filter(line => line.trim())
+                                .slice(-50)
                         } else {
                             console.error('Log fetch failed:', logResponse.status)
                         }
@@ -564,18 +569,18 @@ export function AgencyDetail() {
                                 <span className={`transform transition-transform ${extractionProgress.showLogs ? 'rotate-180' : ''}`}>
                                     ▼
                                 </span>
-                                <span>Live Crawl Log ({extractionProgress.logs.length} entries)</span>
+                                <span>Live Crawl Log ({extractionProgress.logs.length} lines)</span>
                             </button>
 
                             {extractionProgress.showLogs && (
-                                <div className="mt-2 bg-gray-900 rounded-lg p-3 max-h-64 overflow-y-auto font-mono text-xs">
+                                <div className="mt-2 bg-gray-900 rounded-lg p-3 max-h-80 overflow-y-auto font-mono text-xs leading-relaxed">
                                     {extractionProgress.logs.map((line, i) => (
                                         <div
                                             key={i}
-                                            className={`py-0.5 ${line.startsWith('⚠') ? 'text-yellow-400' :
-                                                line.startsWith('✗') ? 'text-red-400' :
-                                                    line.includes('Extracted') || line.includes('Found') ? 'text-green-400' :
-                                                        'text-gray-300'
+                                            className={`py-0.5 whitespace-pre-wrap break-all ${line.includes('ERROR') ? 'text-red-400' :
+                                                    line.includes('WARN') ? 'text-yellow-400' :
+                                                        line.includes('INFO') ? 'text-green-300' :
+                                                            'text-gray-300'
                                                 }`}
                                         >
                                             {line}
@@ -614,7 +619,7 @@ export function AgencyDetail() {
                     // Flat list when searching
                     <div className="space-y-2">
                         {filteredPeople.map(person => (
-                            <PersonCard key={person.id} person={person} />
+                            <PersonCard key={person.id} person={person} onDelete={handleDeletePerson} />
                         ))}
                         {filteredPeople.length === 0 && (
                             <p className="text-gray-500 text-center py-4">No people match your search</p>
@@ -650,7 +655,7 @@ export function AgencyDetail() {
                                     {expandedSections.has(Number(level)) && (
                                         <div className="space-y-2 ml-6">
                                             {levelPeople.map(person => (
-                                                <PersonCard key={person.id} person={person} />
+                                                <PersonCard key={person.id} person={person} onDelete={handleDeletePerson} />
                                             ))}
                                         </div>
                                     )}
@@ -672,7 +677,7 @@ export function AgencyDetail() {
 }
 
 // Person Card Component
-function PersonCard({ person }: { person: GovPerson }) {
+function PersonCard({ person, onDelete }: { person: GovPerson; onDelete?: (id: string) => void }) {
     return (
         <div className="flex items-start gap-4 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
             {/* Photo or placeholder */}
@@ -729,6 +734,15 @@ function PersonCard({ person }: { person: GovPerson }) {
                     >
                         <Linkedin className="w-4 h-4" />
                     </a>
+                )}
+                {onDelete && (
+                    <button
+                        onClick={() => onDelete(person.id)}
+                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                        title="Delete person"
+                    >
+                        <Trash2 className="w-4 h-4" />
+                    </button>
                 )}
             </div>
         </div>
