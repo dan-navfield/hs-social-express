@@ -326,6 +326,91 @@ Example format:
     }
 }
 
+// Extract people from PDF when we already have base64 data
+async function extractPeopleFromPdfBase64(pdfBase64: string, agencyName: string): Promise<ExtractedPerson[]> {
+    console.log(`Sending PDF to Gemini (${pdfBase64.length} chars)`);
+    
+    const prompt = `You are analyzing a PDF organisational chart from an Australian government agency.
+    
+AGENCY: ${agencyName}
+
+This is an organizational chart PDF. Extract ALL the senior executives/leadership shown.
+
+For each person found, extract:
+- name: Full name (REQUIRED - must be an actual person's name like "John Smith" or "Dr Jane Doe")
+- title: Their position/title (e.g., "Commissioner", "Deputy Secretary", "Assistant Commissioner")
+- division: The division/branch they lead (if shown)
+- seniority_level: 1=Commissioner/Secretary/CEO, 2=Deputy Commissioner/COO, 3=First Assistant Secretary/Group Manager, 4=Assistant Secretary/Director, 5=Other
+
+Return ONLY a valid JSON array. Extract EVERYONE visible in the org chart - typically 15-30+ people.
+
+Example format:
+[{"name": "Jane Smith", "title": "Commissioner", "division": null, "seniority_level": 1}]`;
+
+    try {
+        const response = await fetch(
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-goog-api-key': geminiApiKey,
+                },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            { text: prompt },
+                            { 
+                                inlineData: {
+                                    mimeType: 'application/pdf',
+                                    data: pdfBase64
+                                }
+                            }
+                        ]
+                    }],
+                    generationConfig: {
+                        temperature: 0.1,
+                        maxOutputTokens: 8192,
+                    }
+                })
+            }
+        );
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Gemini PDF API error:', errorText);
+            return [];
+        }
+        
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        
+        console.log('Gemini response length:', text.length);
+        
+        const jsonMatch = text.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+            try {
+                const people = JSON.parse(jsonMatch[0]) as ExtractedPerson[];
+                const filtered = people.filter(p => 
+                    p.name && 
+                    p.name.length > 2 && 
+                    !p.name.toLowerCase().includes('not mentioned')
+                );
+                console.log(`Gemini extracted ${filtered.length} people from PDF`);
+                return filtered;
+            } catch (e) {
+                console.error('Failed to parse Gemini response:', e);
+                return [];
+            }
+        }
+        
+        return [];
+    } catch (error) {
+        console.error('Gemini API error:', error);
+        return [];
+    }
+}
+
 // Create the crawler
 const crawler = new PlaywrightCrawler({
     navigationTimeoutSecs: 60,
@@ -551,23 +636,53 @@ const crawler = new PlaywrightCrawler({
                 
                 for (const pdfLink of pdfLinks) {
                     const pdfUrl = new URL(pdfLink, url).href;
-                    log.info(`Extracting from PDF: ${pdfUrl}`);
+                    log.info(`Downloading PDF via browser: ${pdfUrl}`);
                     
-                    const pdfPeople = await extractPeopleFromPdf(pdfUrl, agencyName);
-                    
-                    if (pdfPeople.length > 0) {
-                        log.info(`Extracted ${pdfPeople.length} people from org chart PDF`);
+                    try {
+                        // Use Playwright's browser context to download PDF (avoids WAF blocks)
+                        const context = page.context();
+                        const pdfPage = await context.newPage();
                         
-                        // Store and send results
-                        let existing = results.get(agencyId);
-                        if (!existing) {
-                            existing = { agency: { id: agencyId, name: agencyName, website: '' }, people: [] as ExtractedPerson[], orgChartUrl: undefined };
+                        // Navigate to PDF with longer timeout
+                        const pdfResponse = await pdfPage.goto(pdfUrl, { 
+                            waitUntil: 'load',
+                            timeout: 60000 // 60 second timeout
+                        });
+                        
+                        if (pdfResponse) {
+                            const pdfBuffer = await pdfResponse.body();
+                            await pdfPage.close();
+                            
+                            if (pdfBuffer && pdfBuffer.length > 0) {
+                                log.info(`Downloaded PDF: ${pdfBuffer.length} bytes`);
+                                
+                                // Convert to base64 and send to Gemini
+                                const pdfBase64 = pdfBuffer.toString('base64');
+                                log.info(`PDF base64 encoded: ${pdfBase64.length} chars`);
+                                
+                                const pdfPeople = await extractPeopleFromPdfBase64(pdfBase64, agencyName);
+                                
+                                if (pdfPeople.length > 0) {
+                                    log.info(`Extracted ${pdfPeople.length} people from org chart PDF`);
+                                    
+                                    // Store and send results
+                                    let existing = results.get(agencyId);
+                                    if (!existing) {
+                                        existing = { agency: { id: agencyId, name: agencyName, website: '' }, people: [] as ExtractedPerson[], orgChartUrl: undefined };
+                                    }
+                                    existing.people.push(...pdfPeople);
+                                    existing.orgChartUrl = pdfUrl;
+                                    results.set(agencyId, existing);
+                                    
+                                    await sendPeopleToWebhook(agencyId, pdfPeople, pdfUrl);
+                                }
+                            }
+                        } else {
+                            await pdfPage.close();
+                            log.error(`No response from PDF URL`);
                         }
-                        existing.people.push(...pdfPeople);
-                        existing.orgChartUrl = pdfUrl;
-                        results.set(agencyId, existing);
-                        
-                        await sendPeopleToWebhook(agencyId, pdfPeople, pdfUrl);
+                    } catch (pdfError) {
+                        log.error(`Failed to download PDF: ${pdfError}`);
                     }
                 }
             } catch (error) {
