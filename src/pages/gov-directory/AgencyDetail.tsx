@@ -232,7 +232,48 @@ export function AgencyDetail() {
                 const firstName = nameParts[0]
                 const lastName = nameParts.slice(1).join(' ') || nameParts[0]
 
-                // Call Apollo People Enrichment API
+                console.log(`Apollo: Searching for ${firstName} ${lastName} at ${agency.name}`)
+
+                // Step 1: Search for the person to get their Apollo ID
+                const searchResponse = await fetch('https://api.apollo.io/v1/mixed_people/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'no-cache',
+                        'X-Api-Key': apolloApiKey
+                    },
+                    body: JSON.stringify({
+                        q_organization_domains: domain || undefined,
+                        q_organization_name: agency.name,
+                        person_titles: [person.title || ''],
+                        q_keywords: `${firstName} ${lastName}`,
+                        page: 1,
+                        per_page: 5
+                    })
+                })
+
+                if (!searchResponse.ok) {
+                    console.error('Apollo search failed:', await searchResponse.text())
+                    throw new Error('Search failed')
+                }
+
+                const searchData = await searchResponse.json()
+                console.log(`Apollo search results:`, searchData.people?.length || 0, 'matches')
+
+                // Find best match from search results
+                const matchedPerson = searchData.people?.find((p: { first_name?: string; last_name?: string }) =>
+                    p.first_name?.toLowerCase() === firstName.toLowerCase() ||
+                    p.last_name?.toLowerCase() === lastName.toLowerCase()
+                ) || searchData.people?.[0]
+
+                if (!matchedPerson?.id) {
+                    console.log('No match found in Apollo search')
+                    throw new Error('No match')
+                }
+
+                console.log(`Apollo: Found match with ID ${matchedPerson.id}`)
+
+                // Step 2: Enrich by ID to get contact details
                 const response = await fetch('https://api.apollo.io/v1/people/match', {
                     method: 'POST',
                     headers: {
@@ -241,10 +282,7 @@ export function AgencyDetail() {
                         'X-Api-Key': apolloApiKey
                     },
                     body: JSON.stringify({
-                        first_name: firstName,
-                        last_name: lastName,
-                        organization_name: agency.name,
-                        domain: domain || undefined,
+                        id: matchedPerson.id,
                         reveal_personal_emails: true,
                         reveal_phone_number: true
                     })
@@ -252,6 +290,7 @@ export function AgencyDetail() {
 
                 if (response.ok) {
                     const data = await response.json()
+                    console.log('Apollo enrichment response:', data.person ? 'Found' : 'Not found')
 
                     if (data.person) {
                         const apolloPerson = data.person
@@ -919,8 +958,8 @@ export function AgencyDetail() {
                                     <div
                                         key={i}
                                         className={`flex items-center justify-between p-2 rounded-lg text-sm ${entry.status === 'found' ? 'bg-green-50' :
-                                                entry.status === 'not_found' ? 'bg-gray-50' :
-                                                    'bg-white border border-gray-200'
+                                            entry.status === 'not_found' ? 'bg-gray-50' :
+                                                'bg-white border border-gray-200'
                                             }`}
                                     >
                                         <div className="flex items-center gap-2">
