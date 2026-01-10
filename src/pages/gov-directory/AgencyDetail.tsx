@@ -76,6 +76,9 @@ interface GovPerson {
     source_url: string | null
 }
 
+// Apollo.io API key for people enrichment
+const apolloApiKey = 'VGUWDBzc5jkJc0xQmvK56A'
+
 export function AgencyDetail() {
     const { slug } = useParams<{ slug: string }>()
     const navigate = useNavigate()
@@ -88,6 +91,8 @@ export function AgencyDetail() {
 
     const [isDiscoveringOrgChart, setIsDiscoveringOrgChart] = useState(false)
     const [isScrapingPeople, setIsScrapingPeople] = useState(false)
+    const [isEnrichingPeople, setIsEnrichingPeople] = useState(false)
+    const [enrichmentProgress, setEnrichmentProgress] = useState<{ current: number; total: number; found: number } | null>(null)
     const [extractionProgress, setExtractionProgress] = useState<ExtractionProgress | null>(null)
     const [searchQuery, setSearchQuery] = useState('')
     const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set([1, 2, 3]))
@@ -163,6 +168,107 @@ export function AgencyDetail() {
         } else {
             setPeople(prev => prev.filter(p => p.id !== personId))
         }
+    }
+
+    const handleEnrichWithApollo = async () => {
+        if (!agency) return
+
+        // Only enrich people without email
+        const peopleToEnrich = people.filter(p => !p.email)
+        if (peopleToEnrich.length === 0) {
+            alert('All people already have email addresses!')
+            return
+        }
+
+        if (!confirm(`Enrich ${peopleToEnrich.length} people with Apollo.io? This will use API credits.`)) {
+            return
+        }
+
+        setIsEnrichingPeople(true)
+        setEnrichmentProgress({ current: 0, total: peopleToEnrich.length, found: 0 })
+
+        // Get domain from agency website
+        let domain = ''
+        if (agency.website) {
+            try {
+                const url = new URL(agency.website.startsWith('http') ? agency.website : `https://${agency.website}`)
+                domain = url.hostname.replace('www.', '')
+            } catch { /* ignore */ }
+        }
+
+        let foundCount = 0
+
+        for (let i = 0; i < peopleToEnrich.length; i++) {
+            const person = peopleToEnrich[i]
+            setEnrichmentProgress({ current: i + 1, total: peopleToEnrich.length, found: foundCount })
+
+            try {
+                // Split name into first/last
+                const nameParts = person.name.trim().split(' ')
+                const firstName = nameParts[0]
+                const lastName = nameParts.slice(1).join(' ') || nameParts[0]
+
+                // Call Apollo People Enrichment API
+                const response = await fetch('https://api.apollo.io/v1/people/match', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'no-cache',
+                        'X-Api-Key': apolloApiKey
+                    },
+                    body: JSON.stringify({
+                        first_name: firstName,
+                        last_name: lastName,
+                        organization_name: agency.name,
+                        domain: domain || undefined,
+                        reveal_personal_emails: true,
+                        reveal_phone_number: true
+                    })
+                })
+
+                if (response.ok) {
+                    const data = await response.json()
+
+                    if (data.person) {
+                        const apolloPerson = data.person
+
+                        // Update database with enriched data
+                        const updates: Record<string, string | null> = {}
+                        if (apolloPerson.email) updates.email = apolloPerson.email
+                        if (apolloPerson.phone_numbers?.[0]?.sanitized_number) {
+                            updates.phone = apolloPerson.phone_numbers[0].sanitized_number
+                        }
+                        if (apolloPerson.linkedin_url) updates.linkedin_url = apolloPerson.linkedin_url
+                        if (apolloPerson.photo_url) updates.photo_url = apolloPerson.photo_url
+
+                        if (Object.keys(updates).length > 0) {
+                            foundCount++
+
+                            await supabase
+                                .from('gov_agency_people')
+                                .update(updates)
+                                .eq('id', person.id)
+
+                            // Update local state
+                            setPeople(prev => prev.map(p =>
+                                p.id === person.id ? { ...p, ...updates } : p
+                            ))
+                        }
+                    }
+                } else {
+                    console.error('Apollo API error:', await response.text())
+                }
+            } catch (err) {
+                console.error(`Failed to enrich ${person.name}:`, err)
+            }
+
+            // Small delay to avoid rate limiting
+            await new Promise(r => setTimeout(r, 500))
+        }
+
+        setIsEnrichingPeople(false)
+        setEnrichmentProgress(null)
+        alert(`Enrichment complete! Found data for ${foundCount} of ${peopleToEnrich.length} people.`)
     }
 
     const handleDiscoverOrgChart = async () => {
@@ -500,6 +606,25 @@ export function AgencyDetail() {
                                 <>
                                     <RefreshCw className="w-4 h-4" />
                                     Extract People
+                                </>
+                            )}
+                        </Button>
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={handleEnrichWithApollo}
+                            disabled={isEnrichingPeople || people.length === 0}
+                            title="Enrich people with Apollo.io to find emails, phones, and LinkedIn"
+                        >
+                            {isEnrichingPeople ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    {enrichmentProgress ? `${enrichmentProgress.current}/${enrichmentProgress.total}` : 'Enriching...'}
+                                </>
+                            ) : (
+                                <>
+                                    <Mail className="w-4 h-4" />
+                                    Enrich (Apollo)
                                 </>
                             )}
                         </Button>
