@@ -109,25 +109,35 @@ async function sendPeopleToWebhook(agencyId: string, people: ExtractedPerson[], 
 
 // Use Gemini to extract people from HTML content
 async function extractPeopleWithGemini(html: string, agencyName: string): Promise<ExtractedPerson[]> {
-    const prompt = `You are analyzing a government agency leadership/executive page. Extract all senior personnel mentioned.
+    const prompt = `You are analyzing an Australian government agency's leadership/executive webpage. Your task is to extract the names and titles of all senior personnel mentioned.
 
 AGENCY: ${agencyName}
 
+IMPORTANT INSTRUCTIONS:
+1. Look for actual person names - typically in headings (h2, h3) or bold text
+2. Names are usually in format "FirstName LastName" or "Dr. FirstName LastName" etc.
+3. DO NOT use placeholders like "Not mentioned" - only return people with actual names
+4. Look for titles like "Commissioner", "Secretary", "Deputy Secretary", "Chief Executive", "Executive Director", etc.
+5. If you cannot find any person's actual name, return an empty array []
+
 For each person found, extract:
-- name: Full name
-- title: Their position/title
+- name: The person's FULL NAME (required - must be an actual name, not a placeholder)
+- title: Their position/title (e.g., "Commissioner", "Deputy Secretary")
 - division: The division/branch they lead (if mentioned)
-- seniority_level: 1=Secretary/CEO, 2=Deputy Secretary, 3=First Assistant Secretary/Group Manager, 4=Assistant Secretary/Director, 5=Other
+- seniority_level: 1=Commissioner/Secretary/CEO, 2=Deputy Secretary/COO, 3=First Assistant Secretary/Group Manager, 4=Assistant Secretary/Director, 5=Other
 - email: If publicly shown
 - phone: If publicly shown
 
-Return ONLY a valid JSON array of objects. If no people found, return [].
+Return ONLY a valid JSON array. If no actual named people found, return [].
 
-Example output:
-[{"name": "Jane Smith", "title": "Secretary", "division": null, "seniority_level": 1}, {"name": "John Doe", "title": "Deputy Secretary", "division": "Corporate", "seniority_level": 2}]
+Example good output:
+[{"name": "Liz Hefren-Webb", "title": "Commissioner", "division": null, "seniority_level": 1}]
 
-HTML CONTENT:
-${html.substring(0, 50000)}`;  // Limit to 50k chars for Gemini
+Example bad output (DO NOT DO THIS):
+[{"name": "Not mentioned", "title": "Executive", "seniority_level": 2}]
+
+HTML CONTENT (look for names in headings and bold text):
+${html.substring(0, 50000)}`;
 
     try {
         const response = await fetch(
@@ -162,7 +172,15 @@ ${html.substring(0, 50000)}`;  // Limit to 50k chars for Gemini
         const jsonMatch = text.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
             try {
-                return JSON.parse(jsonMatch[0]);
+                const people = JSON.parse(jsonMatch[0]) as ExtractedPerson[];
+                // Filter out any entries with placeholder names
+                return people.filter(p => 
+                    p.name && 
+                    p.name.length > 2 && 
+                    !p.name.toLowerCase().includes('not mentioned') &&
+                    !p.name.toLowerCase().includes('unknown') &&
+                    !p.name.toLowerCase().includes('placeholder')
+                );
             } catch (e) {
                 console.error('Failed to parse Gemini JSON response:', e);
                 return [];
@@ -172,6 +190,84 @@ ${html.substring(0, 50000)}`;  // Limit to 50k chars for Gemini
         return [];
     } catch (error) {
         console.error('Gemini extraction error:', error);
+        return [];
+    }
+}
+
+// Use Gemini to extract people from a PDF org chart
+async function extractPeopleFromPdf(pdfUrl: string, agencyName: string): Promise<ExtractedPerson[]> {
+    console.log(`Extracting from PDF: ${pdfUrl}`);
+    
+    const prompt = `You are analyzing a PDF organisational chart from an Australian government agency.
+    
+AGENCY: ${agencyName}
+PDF URL: ${pdfUrl}
+
+Please access this PDF and extract all the senior executives/leadership shown in the org chart.
+
+For each person found, extract:
+- name: Full name (REQUIRED - actual name, not placeholder)
+- title: Their position/title
+- division: The division/branch they lead
+- seniority_level: 1=Commissioner/Secretary/CEO, 2=Deputy Secretary/COO, 3=First Assistant Secretary/Group Manager, 4=Assistant Secretary/Director, 5=Other
+
+Return ONLY a valid JSON array. Focus on the top 2-3 levels of the hierarchy.`;
+
+    try {
+        const response = await fetch(
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-goog-api-key': geminiApiKey,
+                },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            { text: prompt },
+                            { 
+                                fileData: {
+                                    mimeType: 'application/pdf',
+                                    fileUri: pdfUrl
+                                }
+                            }
+                        ]
+                    }],
+                    generationConfig: {
+                        temperature: 0.1,
+                        maxOutputTokens: 8192,
+                    }
+                })
+            }
+        );
+        
+        if (!response.ok) {
+            console.error('Gemini PDF API error:', await response.text());
+            return [];
+        }
+        
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        
+        const jsonMatch = text.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+            try {
+                const people = JSON.parse(jsonMatch[0]) as ExtractedPerson[];
+                return people.filter(p => 
+                    p.name && 
+                    p.name.length > 2 && 
+                    !p.name.toLowerCase().includes('not mentioned')
+                );
+            } catch (e) {
+                console.error('Failed to parse PDF extraction response:', e);
+                return [];
+            }
+        }
+        
+        return [];
+    } catch (error) {
+        console.error('PDF extraction error:', error);
         return [];
     }
 }
@@ -257,7 +353,58 @@ const crawler = new PlaywrightCrawler({
                 await page.waitForLoadState('networkidle');
                 await page.waitForTimeout(2000);
                 
-                // Get page content
+                // First, look for PDF org chart links
+                const pdfLinks = await page.evaluate(() => {
+                    const links = Array.from(document.querySelectorAll('a[href$=".pdf"]'));
+                    const orgChartPdfs: string[] = [];
+                    
+                    for (const link of links) {
+                        const href = link.getAttribute('href') || '';
+                        const text = (link.textContent || '').toLowerCase();
+                        
+                        // Look for org chart related PDFs
+                        if (text.includes('org') || 
+                            text.includes('chart') || 
+                            text.includes('structure') ||
+                            href.toLowerCase().includes('org') ||
+                            href.toLowerCase().includes('chart') ||
+                            href.toLowerCase().includes('structure')) {
+                            orgChartPdfs.push(href);
+                        }
+                    }
+                    
+                    return orgChartPdfs;
+                });
+                
+                // If we found PDF org charts, try to extract from them
+                if (pdfLinks.length > 0) {
+                    log.info(`Found ${pdfLinks.length} PDF org chart(s)`);
+                    
+                    for (const pdfLink of pdfLinks) {
+                        const pdfUrl = new URL(pdfLink, url).href;
+                        log.info(`Attempting to extract from PDF: ${pdfUrl}`);
+                        
+                        const pdfPeople = await extractPeopleFromPdf(pdfUrl, agencyName);
+                        
+                        if (pdfPeople.length > 0) {
+                            log.info(`Extracted ${pdfPeople.length} people from PDF`);
+                            
+                            // Store and send results
+                            let existing = results.get(agencyId);
+                            if (!existing) {
+                                existing = { agency: { id: agencyId, name: agencyName, website: '' }, people: [] as ExtractedPerson[], orgChartUrl: undefined };
+                            }
+                            existing.people.push(...pdfPeople);
+                            existing.orgChartUrl = pdfUrl;
+                            results.set(agencyId, existing);
+                            
+                            await sendPeopleToWebhook(agencyId, pdfPeople, pdfUrl);
+                            return; // Successfully got from PDF, don't also try HTML
+                        }
+                    }
+                }
+                
+                // Fall back to HTML extraction
                 const html = await page.content();
                 
                 // Check if this looks like a leadership page
@@ -266,6 +413,7 @@ const crawler = new PlaywrightCrawler({
                     pageText.toLowerCase().includes('secretary') ||
                     pageText.toLowerCase().includes('executive') ||
                     pageText.toLowerCase().includes('director') ||
+                    pageText.toLowerCase().includes('commissioner') ||
                     pageText.toLowerCase().includes('leadership');
                 
                 if (!hasLeadershipContent) {
