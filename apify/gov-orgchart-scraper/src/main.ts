@@ -353,58 +353,80 @@ const crawler = new PlaywrightCrawler({
                 await page.waitForLoadState('networkidle');
                 await page.waitForTimeout(2000);
                 
-                // First, look for PDF org chart links
+                // First, look for PDF org chart links (broader search)
                 const pdfLinks = await page.evaluate(() => {
-                    const links = Array.from(document.querySelectorAll('a[href$=".pdf"]'));
-                    const orgChartPdfs: string[] = [];
+                    // Find ALL PDF links on the page
+                    const allPdfLinks = Array.from(document.querySelectorAll('a[href*=".pdf"]'));
                     
-                    for (const link of links) {
-                        const href = link.getAttribute('href') || '';
+                    // Also find links with org chart text that might link to PDFs
+                    const orgChartLinks = Array.from(document.querySelectorAll('a')).filter(link => {
                         const text = (link.textContent || '').toLowerCase();
-                        
-                        // Look for org chart related PDFs
-                        if (text.includes('org') || 
-                            text.includes('chart') || 
-                            text.includes('structure') ||
-                            href.toLowerCase().includes('org') ||
-                            href.toLowerCase().includes('chart') ||
-                            href.toLowerCase().includes('structure')) {
-                            orgChartPdfs.push(href);
+                        return text.includes('org') && (text.includes('chart') || text.includes('structure'));
+                    });
+                    
+                    const pdfs: string[] = [];
+                    const seen = new Set<string>();
+                    
+                    // Add all PDF links
+                    for (const link of allPdfLinks) {
+                        const href = link.getAttribute('href');
+                        if (href && !seen.has(href)) {
+                            seen.add(href);
+                            pdfs.push(href);
                         }
                     }
                     
-                    return orgChartPdfs;
+                    // Add org chart links (might be PDFs)
+                    for (const link of orgChartLinks) {
+                        const href = link.getAttribute('href');
+                        if (href && !seen.has(href)) {
+                            seen.add(href);
+                            pdfs.push(href);
+                        }
+                    }
+                    
+                    console.log('Found PDF/org chart links:', pdfs);
+                    return pdfs;
                 });
                 
-                // If we found PDF org charts, try to extract from them
+                let allExtractedPeople: ExtractedPerson[] = [];
+                let primaryOrgChartUrl = url;
+                
+                // Process PDF/org chart links
                 if (pdfLinks.length > 0) {
-                    log.info(`Found ${pdfLinks.length} PDF org chart(s)`);
+                    log.info(`Found ${pdfLinks.length} PDF/org chart link(s)`);
                     
                     for (const pdfLink of pdfLinks) {
-                        const pdfUrl = new URL(pdfLink, url).href;
-                        log.info(`Attempting to extract from PDF: ${pdfUrl}`);
+                        const linkUrl = new URL(pdfLink, url).href;
                         
-                        const pdfPeople = await extractPeopleFromPdf(pdfUrl, agencyName);
-                        
-                        if (pdfPeople.length > 0) {
-                            log.info(`Extracted ${pdfPeople.length} people from PDF`);
+                        if (linkUrl.toLowerCase().includes('.pdf')) {
+                            // Direct PDF - extract from it
+                            log.info(`Attempting to extract from PDF: ${linkUrl}`);
                             
-                            // Store and send results
-                            let existing = results.get(agencyId);
-                            if (!existing) {
-                                existing = { agency: { id: agencyId, name: agencyName, website: '' }, people: [] as ExtractedPerson[], orgChartUrl: undefined };
+                            const pdfPeople = await extractPeopleFromPdf(linkUrl, agencyName);
+                            
+                            if (pdfPeople.length > 0) {
+                                log.info(`Extracted ${pdfPeople.length} people from PDF`);
+                                allExtractedPeople.push(...pdfPeople);
+                                primaryOrgChartUrl = linkUrl;
                             }
-                            existing.people.push(...pdfPeople);
-                            existing.orgChartUrl = pdfUrl;
-                            results.set(agencyId, existing);
-                            
-                            await sendPeopleToWebhook(agencyId, pdfPeople, pdfUrl);
-                            return; // Successfully got from PDF, don't also try HTML
+                        } else {
+                            // Not a PDF - might be a page that contains the PDF link
+                            // Queue it for deeper crawling
+                            log.info(`Org chart link is not a PDF, queuing for deeper crawl: ${linkUrl}`);
+                            await crawler.addRequests([{
+                                url: linkUrl,
+                                userData: { 
+                                    type: 'orgchart_page', 
+                                    agencyId, 
+                                    agencyName 
+                                }
+                            }]);
                         }
                     }
                 }
                 
-                // Fall back to HTML extraction
+                // ALSO try HTML extraction (in addition to PDF)
                 const html = await page.content();
                 
                 // Check if this looks like a leadership page
@@ -416,31 +438,86 @@ const crawler = new PlaywrightCrawler({
                     pageText.toLowerCase().includes('commissioner') ||
                     pageText.toLowerCase().includes('leadership');
                 
-                if (!hasLeadershipContent) {
-                    log.info(`Page doesn't appear to contain leadership info: ${url}`);
-                    return;
+                if (hasLeadershipContent) {
+                    // Extract people using Gemini from HTML
+                    const htmlPeople = await extractPeopleWithGemini(html, agencyName);
+                    
+                    if (htmlPeople.length > 0) {
+                        log.info(`Found ${htmlPeople.length} people from HTML`);
+                        allExtractedPeople.push(...htmlPeople);
+                    }
                 }
                 
-                // Extract people using Gemini
-                const people = await extractPeopleWithGemini(html, agencyName);
+                // Dedupe by name
+                const seenNames = new Set<string>();
+                const dedupedPeople = allExtractedPeople.filter(p => {
+                    const nameLower = p.name.toLowerCase();
+                    if (seenNames.has(nameLower)) return false;
+                    seenNames.add(nameLower);
+                    return true;
+                });
                 
-                if (people.length > 0) {
-                    log.info(`Found ${people.length} people at ${agencyName}`);
+                if (dedupedPeople.length > 0) {
+                    log.info(`Total unique people found: ${dedupedPeople.length}`);
                     
                     // Store results
                     let existing = results.get(agencyId);
                     if (!existing) {
                         existing = { agency: { id: agencyId, name: agencyName, website: '' }, people: [] as ExtractedPerson[], orgChartUrl: undefined };
                     }
-                    existing.people.push(...people);
-                    existing.orgChartUrl = url;
+                    existing.people.push(...dedupedPeople);
+                    existing.orgChartUrl = primaryOrgChartUrl;
                     results.set(agencyId, existing);
                     
-                    // Send to webhook immediately
-                    await sendPeopleToWebhook(agencyId, people, url);
+                    // Send to webhook
+                    await sendPeopleToWebhook(agencyId, dedupedPeople, primaryOrgChartUrl);
+                } else {
+                    log.info(`No people found for ${agencyName}`);
                 }
             } catch (error) {
                 log.error(`Error extracting from ${url}: ${error}`);
+            }
+        }
+        
+        // Handle org chart intermediate page (find the PDF here)
+        if (type === 'orgchart_page') {
+            log.info(`Processing org chart page: ${url}`);
+            
+            try {
+                await page.waitForLoadState('networkidle');
+                await page.waitForTimeout(1000);
+                
+                // Find ALL PDF links on this page
+                const pdfLinks = await page.evaluate(() => {
+                    const links = Array.from(document.querySelectorAll('a[href*=".pdf"]'));
+                    return links.map(l => l.getAttribute('href')).filter(Boolean) as string[];
+                });
+                
+                log.info(`Found ${pdfLinks.length} PDF(s) on org chart page`);
+                
+                for (const pdfLink of pdfLinks) {
+                    const pdfUrl = new URL(pdfLink, url).href;
+                    log.info(`Extracting from PDF: ${pdfUrl}`);
+                    
+                    const pdfPeople = await extractPeopleFromPdf(pdfUrl, agencyName);
+                    
+                    if (pdfPeople.length > 0) {
+                        log.info(`Extracted ${pdfPeople.length} people from org chart PDF`);
+                        
+                        // Store and send results
+                        let existing = results.get(agencyId);
+                        if (!existing) {
+                            existing = { agency: { id: agencyId, name: agencyName, website: '' }, people: [] as ExtractedPerson[], orgChartUrl: undefined };
+                        }
+                        existing.people.push(...pdfPeople);
+                        existing.orgChartUrl = pdfUrl;
+                        results.set(agencyId, existing);
+                        
+                        await sendPeopleToWebhook(agencyId, pdfPeople, pdfUrl);
+                    }
+                }
+            } catch (error) {
+                log.error(`Error processing org chart page ${url}: ${error}`);
             }
         }
     },
