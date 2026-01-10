@@ -175,7 +175,7 @@ export default function App() {
 
         {/* Government Directory Routes */}
         <Route path="/gov-directory" element={<ProtectedRoute><AgencyDirectory /></ProtectedRoute>} />
-        <Route path="/gov-directory/:id" element={<ProtectedRoute><AgencyDetail /></ProtectedRoute>} />
+        <Route path="/gov-directory/:slug" element={<ProtectedRoute><AgencyDetail /></ProtectedRoute>} />
       </Routes>
     </BrowserRouter>
   )

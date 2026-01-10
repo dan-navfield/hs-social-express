@@ -24,6 +24,7 @@ import { supabase } from '@/lib/supabase'
 interface GovAgency {
     id: string
     name: string
+    slug: string | null
     short_name: string | null
     acronym: string | null
     website: string | null
@@ -489,7 +490,7 @@ export function AgencyDirectory() {
                         <div
                             key={agency.id}
                             className="bg-white rounded-xl border border-gray-200 p-4 hover:border-purple-300 hover:shadow-sm transition-all cursor-pointer"
-                            onClick={() => navigate(`/gov-directory/${agency.id}`)}
+                            onClick={() => navigate(`/gov-directory/${agency.slug || agency.id}`)}
                         >
                             <div className="flex items-start justify-between gap-4">
                                 <div className="flex-1">

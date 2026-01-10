@@ -30,6 +30,7 @@ import { supabase } from '@/lib/supabase'
 interface GovAgency {
     id: string
     name: string
+    slug: string | null
     short_name: string | null
     acronym: string | null
     website: string | null
@@ -46,6 +47,15 @@ interface GovAgency {
     notes: string | null
     is_priority: boolean
     last_synced_at: string | null
+}
+
+interface ExtractionProgress {
+    runId: string
+    status: string
+    startedAt: string
+    pagesProcessed: number
+    peopleFound: number
+    elapsedSeconds: number
 }
 
 interface GovPerson {
@@ -65,7 +75,7 @@ interface GovPerson {
 }
 
 export function AgencyDetail() {
-    const { id } = useParams<{ id: string }>()
+    const { slug } = useParams<{ slug: string }>()
     const navigate = useNavigate()
     const { currentSpace } = useSpaceStore()
 
@@ -76,26 +86,33 @@ export function AgencyDetail() {
 
     const [isDiscoveringOrgChart, setIsDiscoveringOrgChart] = useState(false)
     const [isScrapingPeople, setIsScrapingPeople] = useState(false)
+    const [extractionProgress, setExtractionProgress] = useState<ExtractionProgress | null>(null)
     const [searchQuery, setSearchQuery] = useState('')
     const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set([1, 2, 3]))
 
     useEffect(() => {
-        if (id && currentSpace?.id) {
+        if (slug && currentSpace?.id) {
             fetchAgencyDetails()
         }
-    }, [id, currentSpace?.id])
+    }, [slug, currentSpace?.id])
 
     const fetchAgencyDetails = async () => {
-        if (!id) return
+        if (!slug) return
 
         setIsLoading(true)
         try {
-            // Fetch agency
-            const { data: agencyData, error: agencyError } = await supabase
-                .from('gov_agencies')
-                .select('*')
-                .eq('id', id)
-                .single()
+            // Fetch agency by slug (fallback to id for backwards compatibility)
+            let query = supabase.from('gov_agencies').select('*')
+
+            // Check if it looks like a UUID
+            const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slug)
+            if (isUuid) {
+                query = query.eq('id', slug)
+            } else {
+                query = query.eq('slug', slug)
+            }
+
+            const { data: agencyData, error: agencyError } = await query.single()
 
             if (agencyError) throw agencyError
             setAgency(agencyData)
@@ -104,7 +121,7 @@ export function AgencyDetail() {
             const { data: peopleData, error: peopleError } = await supabase
                 .from('gov_agency_people')
                 .select('*')
-                .eq('agency_id', id)
+                .eq('agency_id', agencyData.id)
                 .order('seniority_level', { ascending: true })
                 .order('name')
 
