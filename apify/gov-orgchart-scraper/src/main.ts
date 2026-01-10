@@ -636,28 +636,26 @@ const crawler = new PlaywrightCrawler({
                 
                 for (const pdfLink of pdfLinks) {
                     const pdfUrl = new URL(pdfLink, url).href;
-                    log.info(`Downloading PDF: ${pdfUrl}`);
+                    log.info(`Downloading PDF via Playwright: ${pdfUrl}`);
                     
                     try {
-                        // Use Node fetch with proper headers - browser context didn't work
-                        const pdfResponse = await fetch(pdfUrl, {
+                        // Use Playwright's request API - this uses browser context and cookies
+                        const context = page.context();
+                        const apiRequest = context.request;
+                        
+                        const pdfResponse = await apiRequest.get(pdfUrl, {
+                            timeout: 60000,  // 60 second timeout
                             headers: {
-                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                                 'Accept': 'application/pdf,*/*',
-                                'Accept-Language': 'en-US,en;q=0.9',
-                                'Referer': url
                             }
                         });
                         
-                        if (!pdfResponse.ok) {
-                            log.error(`PDF fetch failed: ${pdfResponse.status}`);
+                        if (!pdfResponse.ok()) {
+                            log.error(`PDF request failed: ${pdfResponse.status()}`);
                             continue;
                         }
                         
-                        const contentType = pdfResponse.headers.get('content-type') || '';
-                        log.info(`PDF response content-type: ${contentType}`);
-                        
-                        const pdfBuffer = Buffer.from(await pdfResponse.arrayBuffer());
+                        const pdfBuffer = await pdfResponse.body();
                         log.info(`Downloaded PDF: ${pdfBuffer.length} bytes`);
                         
                         // Verify it's actually a PDF (starts with %PDF)
