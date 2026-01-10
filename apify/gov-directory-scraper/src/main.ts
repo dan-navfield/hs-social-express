@@ -31,6 +31,8 @@ interface ActorInput {
     maxAgencies?: number;
     portfolioFilter?: string; // Optional: only scrape specific portfolio
     startFromPortfolio?: string; // Optional: skip portfolios alphabetically before this one (for delta runs)
+    existingAgencyNames?: string[]; // Optional: list of existing agency names to skip (for delta sync)
+    deltaMode?: boolean; // If true, only sync new agencies not in existingAgencyNames
 }
 
 await Actor.init();
@@ -41,18 +43,26 @@ const {
     spaceId,
     maxAgencies = 500,
     portfolioFilter,
-    startFromPortfolio
+    startFromPortfolio,
+    existingAgencyNames = [],
+    deltaMode = false
 } = input;
+
+// Create a Set for fast lookup of existing agencies
+const existingAgenciesSet = new Set(existingAgencyNames.map(name => name.toLowerCase().trim()));
+let skippedExisting = 0;
 
 const agencies: AgencyData[] = [];
 const BASE_URL = 'https://www.directory.gov.au';
 const PORTFOLIOS_URL = `${BASE_URL}/portfolios`;
 
 console.log('=== Gov Directory Scraper Starting ===');
-console.log('Input received:', JSON.stringify(input, null, 2));
+console.log('Input received:', JSON.stringify({ ...input, existingAgencyNames: `[${existingAgencyNames.length} names]` }, null, 2));
 console.log(`Max agencies: ${maxAgencies}`);
 console.log(`Webhook URL: ${webhookUrl || 'NOT PROVIDED'}`);
 console.log(`Space ID: ${spaceId || 'NOT PROVIDED'}`);
+console.log(`Delta mode: ${deltaMode}`);
+console.log(`Existing agencies to skip: ${existingAgencyNames.length}`);
 if (portfolioFilter) console.log(`Portfolio filter: ${portfolioFilter}`);
 if (startFromPortfolio) console.log(`Starting from portfolio: ${startFromPortfolio}`);
 
@@ -297,6 +307,13 @@ const crawler = new PlaywrightCrawler({
                 }, request.userData?.portfolio);
                 
                 if (agencyData.name) {
+                    // Delta sync: skip if agency already exists
+                    if (deltaMode && existingAgenciesSet.has(agencyData.name.toLowerCase().trim())) {
+                        skippedExisting++;
+                        log.info(`SKIPPED (exists): ${agencyData.name}`);
+                        return;
+                    }
+                    
                     agencies.push({
                         name: agencyData.name,
                         portfolio: agencyData.portfolio,
@@ -316,7 +333,7 @@ const crawler = new PlaywrightCrawler({
                         directory_gov_url: url
                     });
                     
-                    log.info(`Extracted: ${agencyData.name} (${agencies.length} total)`);
+                    log.info(`ADDED NEW: ${agencyData.name} (${agencies.length} new agencies)`);
                     
                     // Send batch every 20 agencies
                     if (agencies.length % 20 === 0 && webhookUrl) {
@@ -337,7 +354,9 @@ const crawler = new PlaywrightCrawler({
 // Start crawling from portfolios page
 await crawler.run([{ url: PORTFOLIOS_URL }]);
 
-console.log(`=== Scraping complete: ${agencies.length} agencies ===`);
+console.log(`=== Scraping complete ===`);
+console.log(`New agencies added: ${agencies.length}`);
+console.log(`Existing agencies skipped: ${skippedExisting}`);
 
 // Send final batch
 if (webhookUrl) {

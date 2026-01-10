@@ -196,24 +196,38 @@ ${html.substring(0, 50000)}`;
 
 // Use Gemini to extract people from a PDF org chart
 async function extractPeopleFromPdf(pdfUrl: string, agencyName: string): Promise<ExtractedPerson[]> {
-    console.log(`Extracting from PDF: ${pdfUrl}`);
+    console.log(`Downloading PDF: ${pdfUrl}`);
     
-    const prompt = `You are analyzing a PDF organisational chart from an Australian government agency.
+    try {
+        // First, download the PDF
+        const pdfResponse = await fetch(pdfUrl);
+        if (!pdfResponse.ok) {
+            console.error(`Failed to download PDF: ${pdfResponse.status}`);
+            return [];
+        }
+        
+        const pdfBuffer = await pdfResponse.arrayBuffer();
+        const pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
+        
+        console.log(`Downloaded PDF: ${pdfBuffer.byteLength} bytes`);
+        
+        const prompt = `You are analyzing a PDF organisational chart from an Australian government agency.
     
 AGENCY: ${agencyName}
-PDF URL: ${pdfUrl}
 
-Please access this PDF and extract all the senior executives/leadership shown in the org chart.
+This is an organizational chart PDF. Extract ALL the senior executives/leadership shown.
 
 For each person found, extract:
-- name: Full name (REQUIRED - actual name, not placeholder)
-- title: Their position/title
-- division: The division/branch they lead
+- name: Full name (REQUIRED - must be an actual person's name)
+- title: Their position/title (e.g., "Commissioner", "Deputy Secretary", "First Assistant Secretary")
+- division: The division/branch they lead (if shown)
 - seniority_level: 1=Commissioner/Secretary/CEO, 2=Deputy Secretary/COO, 3=First Assistant Secretary/Group Manager, 4=Assistant Secretary/Director, 5=Other
 
-Return ONLY a valid JSON array. Focus on the top 2-3 levels of the hierarchy.`;
+Return ONLY a valid JSON array. Extract everyone visible in the org chart, focusing on top 3-4 levels of leadership.
 
-    try {
+Example format:
+[{"name": "Jane Smith", "title": "Commissioner", "division": null, "seniority_level": 1}]`;
+
         const response = await fetch(
             'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
             {
@@ -227,9 +241,9 @@ Return ONLY a valid JSON array. Focus on the top 2-3 levels of the hierarchy.`;
                         parts: [
                             { text: prompt },
                             { 
-                                fileData: {
+                                inlineData: {
                                     mimeType: 'application/pdf',
-                                    fileUri: pdfUrl
+                                    data: pdfBase64
                                 }
                             }
                         ]
@@ -243,22 +257,27 @@ Return ONLY a valid JSON array. Focus on the top 2-3 levels of the hierarchy.`;
         );
         
         if (!response.ok) {
-            console.error('Gemini PDF API error:', await response.text());
+            const errorText = await response.text();
+            console.error('Gemini PDF API error:', errorText);
             return [];
         }
         
         const data = await response.json();
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
         
+        console.log('Gemini PDF response:', text.substring(0, 500));
+        
         const jsonMatch = text.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
             try {
                 const people = JSON.parse(jsonMatch[0]) as ExtractedPerson[];
-                return people.filter(p => 
+                const filtered = people.filter(p => 
                     p.name && 
                     p.name.length > 2 && 
                     !p.name.toLowerCase().includes('not mentioned')
                 );
+                console.log(`Extracted ${filtered.length} people from PDF`);
+                return filtered;
             } catch (e) {
                 console.error('Failed to parse PDF extraction response:', e);
                 return [];
