@@ -167,11 +167,8 @@ export function AgencyDetail() {
             return
         }
 
-        // Get Gemini key from prompt (or could be stored)
-        const geminiKey = prompt('Enter your Gemini API key for AI extraction:')
-        if (!geminiKey) {
-            return
-        }
+        // Use stored Gemini API key
+        const geminiKey = 'AIzaSyDr6HkapIzd48mUc6-kYUpS65ZN5D83fBw'
 
         setIsScrapingPeople(true)
 
@@ -199,17 +196,58 @@ export function AgencyDetail() {
             }
 
             const data = await response.json()
-            alert(`Extraction started! Run ID: ${data.data.id}\n\nCheck Apify console for progress. People will appear here once extracted.`)
+            const runId = data.data.id
 
-            // Refresh after a delay
-            setTimeout(() => {
-                fetchAgencyDetails()
-            }, 30000)
+            // Set initial progress
+            setExtractionProgress({
+                runId,
+                status: 'RUNNING',
+                startedAt: new Date().toISOString(),
+                pagesProcessed: 0,
+                peopleFound: 0,
+                elapsedSeconds: 0
+            })
+
+            // Poll for status updates
+            const startTime = Date.now()
+            const pollInterval = setInterval(async () => {
+                try {
+                    const statusResponse = await fetch(
+                        `https://api.apify.com/v2/acts/verifiable_hare~orgchart-scraper/runs/${runId}?token=${apifyToken}`
+                    )
+
+                    if (statusResponse.ok) {
+                        const statusData = await statusResponse.json()
+                        const run = statusData.data
+
+                        setExtractionProgress({
+                            runId,
+                            status: run.status,
+                            startedAt: run.startedAt,
+                            pagesProcessed: run.stats?.requestsFinished || 0,
+                            peopleFound: people.length,
+                            elapsedSeconds: Math.floor((Date.now() - startTime) / 1000)
+                        })
+
+                        // Stop polling when run is complete
+                        if (run.status === 'SUCCEEDED' || run.status === 'FAILED' || run.status === 'ABORTED') {
+                            clearInterval(pollInterval)
+                            setIsScrapingPeople(false)
+
+                            // Refresh data
+                            setTimeout(() => {
+                                fetchAgencyDetails()
+                            }, 2000)
+                        }
+                    }
+                } catch (err) {
+                    console.error('Failed to poll status:', err)
+                }
+            }, 3000) // Poll every 3 seconds
 
         } catch (err) {
             console.error('Failed to start extraction:', err)
             alert(`Failed to start extraction: ${err}`)
-        } finally {
             setIsScrapingPeople(false)
         }
     }
@@ -425,6 +463,61 @@ export function AgencyDetail() {
                         </Button>
                     </div>
                 </div>
+
+                {/* Extraction Progress Panel */}
+                {extractionProgress && (
+                    <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg p-4 mb-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                                {extractionProgress.status === 'RUNNING' ? (
+                                    <Loader2 className="w-5 h-5 text-purple-600 animate-spin" />
+                                ) : extractionProgress.status === 'SUCCEEDED' ? (
+                                    <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
+                                        <span className="text-white text-xs">✓</span>
+                                    </div>
+                                ) : (
+                                    <AlertCircle className="w-5 h-5 text-red-500" />
+                                )}
+                                <span className="font-medium text-gray-900">
+                                    {extractionProgress.status === 'RUNNING' ? 'Extracting People...' :
+                                        extractionProgress.status === 'SUCCEEDED' ? 'Extraction Complete!' :
+                                            'Extraction ' + extractionProgress.status}
+                                </span>
+                            </div>
+                            <a
+                                href={`https://console.apify.com/view/runs/${extractionProgress.runId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm text-purple-600 hover:underline flex items-center gap-1"
+                            >
+                                View in Apify <ExternalLink className="w-3 h-3" />
+                            </a>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-4 text-sm">
+                            <div className="bg-white/50 rounded-lg p-3">
+                                <div className="text-gray-500 mb-1">Status</div>
+                                <div className="font-semibold text-gray-900">{extractionProgress.status}</div>
+                            </div>
+                            <div className="bg-white/50 rounded-lg p-3">
+                                <div className="text-gray-500 mb-1">Elapsed Time</div>
+                                <div className="font-semibold text-gray-900">
+                                    {Math.floor(extractionProgress.elapsedSeconds / 60)}m {extractionProgress.elapsedSeconds % 60}s
+                                </div>
+                            </div>
+                            <div className="bg-white/50 rounded-lg p-3">
+                                <div className="text-gray-500 mb-1">Pages Processed</div>
+                                <div className="font-semibold text-gray-900">{extractionProgress.pagesProcessed}</div>
+                            </div>
+                        </div>
+
+                        {extractionProgress.status === 'SUCCEEDED' && (
+                            <div className="mt-3 text-sm text-green-700 bg-green-100 rounded-lg p-2 text-center">
+                                ✓ Extracted data saved. Refreshing...
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Search people */}
                 <div className="relative mb-4">
