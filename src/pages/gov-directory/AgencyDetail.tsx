@@ -79,9 +79,6 @@ interface GovPerson {
     source_url: string | null
 }
 
-// Apollo.io API key for people enrichment
-const apolloApiKey = 'VGUWDBzc5jkJc0xQmvK56A'
-
 export function AgencyDetail() {
     const { slug } = useParams<{ slug: string }>()
     const navigate = useNavigate()
@@ -234,57 +231,22 @@ export function AgencyDetail() {
 
                 console.log(`Apollo: Searching for ${firstName} ${lastName} at ${agency.name}`)
 
-                // Step 1: Search for the person to get their Apollo ID
-                const searchResponse = await fetch('https://api.apollo.io/v1/mixed_people/search', {
+                // Call our edge function to avoid CORS
+                const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+                const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+                const response = await fetch(`${supabaseUrl}/functions/v1/apollo-enrich`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Cache-Control': 'no-cache',
-                        'X-Api-Key': apolloApiKey
+                        'Authorization': `Bearer ${supabaseKey}`
                     },
                     body: JSON.stringify({
-                        q_organization_domains: domain || undefined,
-                        q_organization_name: agency.name,
-                        person_titles: [person.title || ''],
-                        q_keywords: `${firstName} ${lastName}`,
-                        page: 1,
-                        per_page: 5
-                    })
-                })
-
-                if (!searchResponse.ok) {
-                    console.error('Apollo search failed:', await searchResponse.text())
-                    throw new Error('Search failed')
-                }
-
-                const searchData = await searchResponse.json()
-                console.log(`Apollo search results:`, searchData.people?.length || 0, 'matches')
-
-                // Find best match from search results
-                const matchedPerson = searchData.people?.find((p: { first_name?: string; last_name?: string }) =>
-                    p.first_name?.toLowerCase() === firstName.toLowerCase() ||
-                    p.last_name?.toLowerCase() === lastName.toLowerCase()
-                ) || searchData.people?.[0]
-
-                if (!matchedPerson?.id) {
-                    console.log('No match found in Apollo search')
-                    throw new Error('No match')
-                }
-
-                console.log(`Apollo: Found match with ID ${matchedPerson.id}`)
-
-                // Step 2: Enrich by ID to get contact details
-                const response = await fetch('https://api.apollo.io/v1/people/match', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Cache-Control': 'no-cache',
-                        'X-Api-Key': apolloApiKey
-                    },
-                    body: JSON.stringify({
-                        id: matchedPerson.id,
-                        reveal_personal_emails: true,
-                        reveal_phone_number: true
+                        first_name: firstName,
+                        last_name: lastName,
+                        organization_name: agency.name,
+                        domain: domain || undefined,
+                        title: person.title || undefined
                     })
                 })
 
@@ -298,18 +260,7 @@ export function AgencyDetail() {
                         // Update database with enriched data
                         const updates: Record<string, string | null> = {}
                         if (apolloPerson.email) updates.email = apolloPerson.email
-
-                        // Get phone - prioritize mobile over other types
-                        if (apolloPerson.phone_numbers?.length > 0) {
-                            const mobilePhone = apolloPerson.phone_numbers.find(
-                                (p: { type?: string }) => p.type === 'mobile'
-                            )
-                            const phone = mobilePhone || apolloPerson.phone_numbers[0]
-                            if (phone?.sanitized_number) {
-                                updates.phone = phone.sanitized_number
-                            }
-                        }
-
+                        if (apolloPerson.phone) updates.phone = apolloPerson.phone
                         if (apolloPerson.linkedin_url) updates.linkedin_url = apolloPerson.linkedin_url
                         if (apolloPerson.photo_url) updates.photo_url = apolloPerson.photo_url
 
