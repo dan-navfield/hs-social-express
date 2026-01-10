@@ -233,28 +233,27 @@ export function AgencyDetail() {
                 try {
                     // Fetch run status
                     const statusResponse = await fetch(
-                        `https://api.apify.com/v2/acts/verifiable_hare~orgchart-scraper/runs/${runId}?token=${apifyToken}`
+                        `https://api.apify.com/v2/actor-runs/${runId}?token=${apifyToken}`
                     )
 
-                    // Fetch logs
+                    // Fetch logs using direct run endpoint
                     let logLines: string[] = []
+                    let logError: string | null = null
                     try {
-                        const logResponse = await fetch(
-                            `https://api.apify.com/v2/acts/verifiable_hare~orgchart-scraper/runs/${runId}/log?token=${apifyToken}`
-                        )
+                        const logUrl = `https://api.apify.com/v2/actor-runs/${runId}/log?token=${apifyToken}`
+                        const logResponse = await fetch(logUrl)
 
                         if (logResponse.ok) {
                             const logText = await logResponse.text()
-
                             // Just split into lines and take last 50 - show raw logs
                             logLines = logText.split('\n')
                                 .filter(line => line.trim())
                                 .slice(-50)
                         } else {
-                            console.error('Log fetch failed:', logResponse.status)
+                            logError = `Log fetch failed: ${logResponse.status}`
                         }
                     } catch (logErr) {
-                        console.error('Log fetch error:', logErr)
+                        logError = `Log fetch error: ${logErr}`
                     }
 
                     if (statusResponse.ok) {
@@ -268,7 +267,7 @@ export function AgencyDetail() {
                             pagesProcessed: run.stats?.requestsFinished || 0,
                             peopleFound: people.length,
                             elapsedSeconds: Math.floor((Date.now() - startTime) / 1000),
-                            logs: logLines.length > 0 ? logLines : (prev?.logs || ['Waiting for logs...']),
+                            logs: logLines.length > 0 ? logLines : (logError ? [logError] : (prev?.logs || ['Fetching logs...'])),
                             showLogs: prev?.showLogs ?? true // Default to open
                         }))
 
@@ -578,9 +577,9 @@ export function AgencyDetail() {
                                         <div
                                             key={i}
                                             className={`py-0.5 whitespace-pre-wrap break-all ${line.includes('ERROR') ? 'text-red-400' :
-                                                    line.includes('WARN') ? 'text-yellow-400' :
-                                                        line.includes('INFO') ? 'text-green-300' :
-                                                            'text-gray-300'
+                                                line.includes('WARN') ? 'text-yellow-400' :
+                                                    line.includes('INFO') ? 'text-green-300' :
+                                                        'text-gray-300'
                                                 }`}
                                         >
                                             {line}
