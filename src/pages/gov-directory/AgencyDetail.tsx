@@ -208,9 +208,14 @@ export function AgencyDetail() {
     }
 
     const handleEnrichWithApollo = async () => {
-        if (!agency || selectedPeople.size === 0) return
+        console.log('Enrich clicked, selectedPeople:', selectedPeople.size, 'agency:', agency?.name)
+        if (!agency || selectedPeople.size === 0) {
+            console.log('Early return - no agency or no selected people')
+            return
+        }
 
         const peopleToEnrich = people.filter(p => selectedPeople.has(p.id))
+        console.log('People to enrich:', peopleToEnrich.map(p => p.name))
 
         setIsEnrichingPeople(true)
         setEnrichmentProgress({
@@ -251,6 +256,8 @@ export function AgencyDetail() {
                 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
                 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
+                console.log('Calling Apollo edge function for:', firstName, lastName)
+
                 const response = await fetch(`${supabaseUrl}/functions/v1/apollo-enrich`, {
                     method: 'POST',
                     headers: {
@@ -266,8 +273,11 @@ export function AgencyDetail() {
                     })
                 })
 
+                console.log('Apollo response status:', response.status)
+
                 if (response.ok) {
                     const data = await response.json()
+                    console.log('Apollo response data:', data)
                     if (data.person && (data.person.email || data.person.phone || data.person.linkedin_url)) {
                         const updates: Record<string, string | null> = {}
                         if (data.person.email) updates.email = data.person.email
@@ -359,8 +369,8 @@ export function AgencyDetail() {
             return
         }
 
-        // Use stored Gemini API key
-        const geminiKey = 'AIzaSyDr6HkapIzd48mUc6-kYUpS65ZN5D83fBw'
+        // Use Gemini API key from environment
+        const geminiKey = import.meta.env.VITE_GEMINI_API_KEY
 
         setIsScrapingPeople(true)
 
