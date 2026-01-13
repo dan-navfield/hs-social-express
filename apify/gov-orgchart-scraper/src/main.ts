@@ -151,7 +151,7 @@ ${html.substring(0, 50000)}`;
 
     try {
         const response = await fetch(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent',
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
             {
                 method: 'POST',
                 headers: {
@@ -279,7 +279,7 @@ Example format:
 [{"name": "Jane Smith", "title": "Commissioner", "division": null, "seniority_level": 1}]`;
 
         const response = await fetch(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent',
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
             {
                 method: 'POST',
                 headers: {
@@ -364,7 +364,7 @@ Example format:
 
     try {
         const response = await fetch(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent',
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
             {
                 method: 'POST',
                 headers: {
