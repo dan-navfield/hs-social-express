@@ -151,7 +151,7 @@ ${html.substring(0, 50000)}`;
 
     try {
         const response = await fetch(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
             {
                 method: 'POST',
                 headers: {
@@ -178,11 +178,15 @@ ${html.substring(0, 50000)}`;
         const data = await response.json();
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
         
+        // Log the raw response for debugging
+        console.log(`Gemini raw response for ${agencyName}:`, text.substring(0, 500));
+        
         // Extract JSON from response (might be wrapped in markdown code block)
         const jsonMatch = text.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
             try {
                 const people = JSON.parse(jsonMatch[0]) as ExtractedPerson[];
+                console.log(`Gemini parsed ${people.length} people for ${agencyName}`);
                 // Filter out any entries with placeholder names
                 return people.filter(p => 
                     p.name && 
@@ -197,6 +201,7 @@ ${html.substring(0, 50000)}`;
             }
         }
         
+        console.log(`Gemini returned no JSON array for ${agencyName}`);
         return [];
     } catch (error) {
         console.error('Gemini extraction error:', error);
@@ -274,7 +279,7 @@ Example format:
 [{"name": "Jane Smith", "title": "Commissioner", "division": null, "seniority_level": 1}]`;
 
         const response = await fetch(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
             {
                 method: 'POST',
                 headers: {
@@ -359,7 +364,7 @@ Example format:
 
     try {
         const response = await fetch(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
             {
                 method: 'POST',
                 headers: {
@@ -587,13 +592,18 @@ const crawler = new PlaywrightCrawler({
                     pageText.toLowerCase().includes('commissioner') ||
                     pageText.toLowerCase().includes('leadership');
                 
+                log.info(`Leadership content check for ${url}: ${hasLeadershipContent}, pageText length: ${pageText.length}`);
+                
                 if (hasLeadershipContent) {
                     // Extract people using Gemini from HTML
+                    log.info(`Sending ${html.length} chars of HTML to Gemini for ${agencyName}`);
                     const htmlPeople = await extractPeopleWithGemini(html, agencyName);
                     
                     if (htmlPeople.length > 0) {
                         log.info(`Found ${htmlPeople.length} people from HTML`);
                         allExtractedPeople.push(...htmlPeople);
+                    } else {
+                        log.info(`Gemini returned 0 people from HTML for ${agencyName}`);
                     }
                 }
                 
