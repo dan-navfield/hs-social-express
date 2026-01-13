@@ -1,0 +1,6 @@
+{
+    "actorSpecification": 1,
+    "name": "orgchart-scraper",
+    "title": "Gov Org Chart Scraper",
+    "description": "Extracts key personnel from Australian government agency websites"
+}
