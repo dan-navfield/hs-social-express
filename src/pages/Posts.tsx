@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Image as ImageIcon, Paintbrush, Eye, MoreHorizontal, ChevronDown, Copy, Download, Check, X, Sparkles, Layers, Loader2, Trash2 } from 'lucide-react'
+import { Plus, Image as ImageIcon, Paintbrush, Eye, MoreHorizontal, ChevronDown, Copy, Download, Check, X, Sparkles, Layers, Loader2, Trash2, Send } from 'lucide-react'
 import { Button, StatusBadge, Modal } from '@/components/ui'
 import { ImageModal } from '@/components/posts/ImageModal'
 import { supabase } from '@/lib/supabase'
@@ -45,6 +45,8 @@ export function Posts() {
     const [exportPost, setExportPost] = useState<Post | null>(null)
     const [copiedText, setCopiedText] = useState(false)
     const [imageModalPost, setImageModalPost] = useState<Post | null>(null)
+    const [isBulkSendingHubSpot, setIsBulkSendingHubSpot] = useState(false)
+    const [hubspotProgress, setHubspotProgress] = useState({ current: 0, total: 0 })
 
     // Filter states
     const [activeFilters, setActiveFilters] = useState<string[]>([])
@@ -302,6 +304,37 @@ export function Posts() {
             console.error('Error sending to HubSpot:', error)
             alert(error instanceof Error ? error.message : 'Failed to send to HubSpot. Make sure HubSpot is connected.')
         }
+    }
+
+    const handleBulkSendToHubSpot = async () => {
+        if (selectedIds.size === 0) { alert('No posts selected'); return; }
+
+        const postIds = Array.from(selectedIds)
+        setIsBulkSendingHubSpot(true)
+        setHubspotProgress({ current: 0, total: postIds.length })
+
+        let successCount = 0
+        let errorCount = 0
+
+        for (let i = 0; i < postIds.length; i++) {
+            setHubspotProgress({ current: i + 1, total: postIds.length })
+            try {
+                const { data, error } = await supabase.functions.invoke('hubspot-send', {
+                    body: { post_id: postIds[i], space_id: currentSpace!.id },
+                })
+                if (error) throw error
+                if (data?.error) throw new Error(data.error)
+                successCount++
+            } catch (err) {
+                console.error(`Failed to send post ${postIds[i]}:`, err)
+                errorCount++
+            }
+        }
+
+        setIsBulkSendingHubSpot(false)
+        setSelectedIds(new Set())
+        await fetchPosts()
+        alert(`HubSpot send complete: ${successCount} sent, ${errorCount} failed`)
     }
 
     const handleBulkDelete = async () => {
@@ -703,6 +736,15 @@ export function Posts() {
                                 >
                                     <Check className="w-4 h-4" />
                                     Change Status ({selectedIds.size})
+                                </button>
+                                <div className="border-t border-[var(--color-gray-100)] my-1" />
+                                <button
+                                    className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--color-gray-50)] text-orange-700 flex items-center gap-2"
+                                    onClick={() => { setShowBulkActions(false); handleBulkSendToHubSpot(); }}
+                                    disabled={selectedIds.size === 0}
+                                >
+                                    <Send className="w-4 h-4" />
+                                    Send to HubSpot ({selectedIds.size})
                                 </button>
                                 <div className="border-t border-[var(--color-gray-100)] my-1" />
                                 <button
@@ -1133,6 +1175,29 @@ export function Posts() {
 
                         <p className="text-xs text-center text-[var(--color-gray-400)] mt-4">
                             ⚡ Images are saved automatically as they complete
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {/* Bulk HubSpot Send Progress */}
+            {isBulkSendingHubSpot && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl p-8 text-center">
+                        <div className="w-14 h-14 bg-gradient-to-br from-orange-400 to-orange-600 rounded-xl flex items-center justify-center mx-auto mb-4">
+                            <Send className="w-7 h-7 text-white" />
+                        </div>
+                        <h3 className="text-lg font-semibold text-[var(--color-gray-900)] mb-2">
+                            Sending to HubSpot
+                        </h3>
+                        <div className="w-full h-4 bg-[var(--color-gray-200)] rounded-full overflow-hidden mb-3">
+                            <div
+                                className="h-full bg-gradient-to-r from-orange-400 to-orange-600 rounded-full transition-all duration-500"
+                                style={{ width: `${(hubspotProgress.current / hubspotProgress.total) * 100}%` }}
+                            />
+                        </div>
+                        <p className="text-sm text-[var(--color-gray-600)]">
+                            Sending {hubspotProgress.current} of {hubspotProgress.total} posts...
                         </p>
                     </div>
                 </div>

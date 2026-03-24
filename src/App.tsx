@@ -6,6 +6,7 @@ import { useSpaceStore } from '@/stores/spaceStore'
 import { Layout } from '@/components/layout'
 import { Dashboard, Login, Posts, PromptStudio, BrandSettings, BrandStudio, Campaigns } from '@/pages'
 import { CampaignSettings } from '@/pages/CampaignSettings'
+import { HubSpotSettings } from '@/pages/HubSpotSettings'
 import {
   BuyICTDashboard,
   Opportunities as BuyICTOpportunities,
@@ -162,6 +163,7 @@ export default function App() {
         <Route path="/prompts" element={<ProtectedRoute><PromptStudio /></ProtectedRoute>} />
         <Route path="/brand-studio" element={<ProtectedRoute><BrandStudio /></ProtectedRoute>} />
         <Route path="/brand" element={<ProtectedRoute><BrandSettings /></ProtectedRoute>} />
+        <Route path="/hubspot" element={<ProtectedRoute><HubSpotSettings /></ProtectedRoute>} />
 
         {/* BuyICT Snoop Routes */}
         <Route path="/buyict" element={<ProtectedRoute><BuyICTDashboard /></ProtectedRoute>} />
