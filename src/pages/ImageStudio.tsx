@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
     Image as ImageIcon,
     Loader2,
@@ -11,10 +12,13 @@ import {
     Check,
     RotateCcw,
     ChevronDown,
+    FileText,
 } from 'lucide-react'
 import { Button } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
 import { useSpaceStore } from '@/stores/spaceStore'
+import { useAuthStore } from '@/stores/authStore'
+import { CONTENT_LAYERS, type ContentLayer } from '@/types/database'
 import {
     applyLogoToImage,
     detectLogoVariant as detectVariant,
@@ -329,6 +333,8 @@ function LogoPanel({ logos, selectedLogoIndex, onSelectLogo, logoPosition, onPos
 
 export function ImageStudio() {
     const { currentSpace } = useSpaceStore()
+    const { user } = useAuthStore()
+    const navigate = useNavigate()
     const [mode, setMode] = useState<'single' | 'carousel'>('single')
     const [prompt, setPrompt] = useState('')
     const [aspectRatio, setAspectRatio] = useState<string>('1:1')
@@ -351,6 +357,10 @@ export function ImageStudio() {
     const [refinement, setRefinement] = useState('')
     const [refreshKey, setRefreshKey] = useState(0)
     const [showSaveMenu, setShowSaveMenu] = useState(false)
+    const [showCreatePostModal, setShowCreatePostModal] = useState(false)
+    const [createPostTitle, setCreatePostTitle] = useState('')
+    const [createPostLayer, setCreatePostLayer] = useState<ContentLayer | ''>('')
+    const [creatingPost, setCreatingPost] = useState(false)
 
     const mutateAssets = useCallback(() => setRefreshKey(k => k + 1), [])
 
@@ -451,6 +461,46 @@ export function ImageStudio() {
 
     const handleDownload = () => { if (!selectedImage) return; const a = document.createElement('a'); a.href = selectedImage.url; a.download = `image-${selectedImage.id}.png`; document.body.appendChild(a); a.click(); document.body.removeChild(a) }
     const handleDownloadAll = () => { const imgs = mode === 'carousel' ? slides.flatMap(s => { const img = s.selectedIndex >= 0 ? s.generations[s.selectedIndex] : null; return img ? [img] : [] }) : generations; imgs.forEach((img, i) => { const a = document.createElement('a'); a.href = img.url; a.download = `slide-${i + 1}.png`; document.body.appendChild(a); a.click(); document.body.removeChild(a) }) }
+    const handleCreatePost = async () => {
+        if (!selectedImage || !currentSpace || !user || !createPostTitle.trim()) return
+        setCreatingPost(true)
+        try {
+            // If the image is a blob URL (branded), upload it first
+            let imagePath = ''
+            if (selectedImage.url.startsWith('blob:')) {
+                const res = await fetch(selectedImage.url)
+                const blob = await res.blob()
+                const ts = Date.now(), rnd = Math.random().toString(36).substring(2, 10)
+                imagePath = `image-studio/${currentSpace.id}/posts/${ts}-${rnd}.png`
+                await supabase.storage.from('generated-images').upload(imagePath, blob, { contentType: 'image/png', upsert: true })
+            } else {
+                // Find the storage path from content_assets
+                const { data: asset } = await supabase.from('content_assets').select('storage_path').eq('id', selectedImage.id).single()
+                imagePath = asset?.storage_path || ''
+            }
+
+            const { error } = await supabase.from('posts').insert({
+                space_id: currentSpace.id,
+                title: createPostTitle.trim(),
+                body: selectedImage.prompt || '',
+                status: 'ready_to_publish',
+                author_id: user.id,
+                generated_image_path: imagePath,
+                content_layer: createPostLayer || null,
+            })
+            if (error) throw error
+
+            setShowCreatePostModal(false)
+            setCreatePostTitle('')
+            setCreatePostLayer('')
+            showToastMsg('Post created — find it in the Calendar')
+        } catch (err) {
+            showToastMsg(err instanceof Error ? err.message : 'Failed to create post')
+        } finally {
+            setCreatingPost(false)
+        }
+    }
+
     const handleAddSlide = () => { setSlides(p => [...p, { id: crypto.randomUUID(), prompt: '', generations: [], selectedIndex: -1 }]); setActiveSlideIndex(slides.length); setConfirmedImage(null); setLatestImage(null); setSelectedImage(null) }
     const handleSelectSlide = (idx: number) => { setActiveSlideIndex(idx); const s = slides[idx]; if (s) { const lg = s.generations.length > 0 ? s.generations[s.generations.length - 1] : null; setLatestImage(lg); setConfirmedImage(s.generations.length > 1 ? s.generations[s.generations.length - 2] : null); setSelectedImage(s.selectedIndex >= 0 ? s.generations[s.selectedIndex] : lg) } }
 
@@ -515,12 +565,63 @@ export function ImageStudio() {
                         ) : <Button variant="secondary" size="sm" disabled={!selectedImage} onClick={handleSaveToLibrary}><Save className="w-3.5 h-3.5 mr-1.5" />Save to Library</Button>}
                         <Button variant="secondary" size="sm" disabled={!selectedImage} onClick={handleDownload}><Download className="w-3.5 h-3.5 mr-1.5" />Download</Button>
                         <div className="w-px h-5 bg-[var(--color-gray-200)] mx-1" />
+                        <Button variant="primary" size="sm" disabled={!selectedImage} onClick={() => { setCreatePostTitle(selectedImage?.prompt?.slice(0, 80) || ''); setShowCreatePostModal(true) }}><FileText className="w-3.5 h-3.5 mr-1.5" />Create Post</Button>
+                        <div className="w-px h-5 bg-[var(--color-gray-200)] mx-1" />
                         <button className="px-3 py-1.5 rounded-lg border border-[var(--color-gray-200)] text-xs text-red-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 flex items-center gap-1.5" disabled={generations.length === 0 && slides[0]?.generations.length === 0} onClick={handleReset}><RotateCcw className="w-3.5 h-3.5" />Start Over</button>
                         {mode === 'carousel' && <><div className="w-px h-5 bg-[var(--color-gray-200)] mx-1" /><Button variant="secondary" size="sm" disabled={generating || !prompt.trim()} onClick={handleGenerateCarousel}><Sparkles className="w-3.5 h-3.5 mr-1.5" />Regenerate All</Button><Button variant="secondary" size="sm" disabled={slides.every(s => s.generations.length === 0)} onClick={handleDownloadAll}><Download className="w-3.5 h-3.5 mr-1.5" />Download All</Button></>}
                     </div>
                 </div>
                 {showLogoPanel && <LogoPanel logos={logos} selectedLogoIndex={selectedLogoIndex} onSelectLogo={setSelectedLogoIndex} logoPosition={logoPosition} onPositionChange={setLogoPosition} onApply={handleApplyLogo} onCancel={() => setShowLogoPanel(false)} applying={applyingLogo} />}
             </div>
+            {/* Create Post Modal */}
+            {showCreatePostModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+                        <div className="px-6 py-4 border-b border-[var(--color-gray-200)]">
+                            <h3 className="text-sm font-semibold text-[var(--color-gray-900)]">Create Post from Image</h3>
+                            <p className="text-xs text-[var(--color-gray-500)] mt-0.5">This will create a new post that can be scheduled on the calendar.</p>
+                        </div>
+                        <div className="px-6 py-4 space-y-4">
+                            {selectedImage && (
+                                <div className="flex items-center gap-3">
+                                    <img src={selectedImage.url} alt="" className="w-16 h-16 rounded-lg object-cover border border-[var(--color-gray-200)]" />
+                                    <p className="text-xs text-[var(--color-gray-500)] flex-1 line-clamp-3">{selectedImage.prompt}</p>
+                                </div>
+                            )}
+                            <div>
+                                <label className="block text-xs font-medium text-[var(--color-gray-700)] mb-1">Post Title</label>
+                                <input
+                                    type="text"
+                                    value={createPostTitle}
+                                    onChange={e => setCreatePostTitle(e.target.value)}
+                                    placeholder="Enter a title for this post..."
+                                    className="w-full px-3 py-2 text-sm border border-[var(--color-gray-300)] rounded-lg focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]/20"
+                                    autoFocus
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-[var(--color-gray-700)] mb-1">Content Layer</label>
+                                <select
+                                    value={createPostLayer}
+                                    onChange={e => setCreatePostLayer(e.target.value as ContentLayer | '')}
+                                    className="w-full px-3 py-2 text-sm border border-[var(--color-gray-300)] rounded-lg focus:outline-none focus:border-[var(--color-primary)] bg-white"
+                                >
+                                    <option value="">Select a layer...</option>
+                                    {CONTENT_LAYERS.map(l => (
+                                        <option key={l.value} value={l.value}>{l.label} — {l.description}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                        <div className="px-6 py-4 border-t border-[var(--color-gray-200)] flex items-center justify-end gap-3">
+                            <Button variant="secondary" size="sm" onClick={() => setShowCreatePostModal(false)}>Cancel</Button>
+                            <Button variant="primary" size="sm" disabled={!createPostTitle.trim() || creatingPost} isLoading={creatingPost} onClick={handleCreatePost}>
+                                <FileText className="w-3.5 h-3.5 mr-1.5" />Create Post
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {toast && <div className="fixed bottom-6 right-6 bg-white border border-[var(--color-gray-200)] rounded-lg px-4 py-2.5 text-xs text-[var(--color-gray-700)] shadow-xl z-50">{toast}</div>}
         </div>
     )
