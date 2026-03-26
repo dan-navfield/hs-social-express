@@ -128,28 +128,67 @@ async function main() {
         while (hasMorePages && opportunityUrls.length < MAX_OPPORTUNITIES) {
             console.log(`Collecting from page ${pageNum}...`)
 
-            try {
-                await page.waitForSelector('a.opportunities-card__link', { timeout: 15000 })
-            } catch {
-                console.log(`No cards found on page ${pageNum}`)
+            // Try multiple selectors — BuyICT changes their markup
+            const CARD_SELECTORS = [
+                'a.opportunities-card__link',
+                '.opportunity-card a',
+                '.opportunities-list a[href*="opportunity"]',
+                'a[href*="id=opportunity"]',
+                'a[href*="opportunity_id"]',
+                '.card a[href]',
+                'a[aria-label*="opportunity"]',
+                'a[aria-label*="Opportunity"]',
+            ]
+
+            let foundSelector = ''
+            for (const sel of CARD_SELECTORS) {
+                const count = await page.locator(sel).count()
+                if (count > 0) {
+                    foundSelector = sel
+                    console.log(`Found ${count} cards with selector: ${sel}`)
+                    break
+                }
+            }
+
+            if (!foundSelector) {
+                // Debug: dump what we can see
+                const debugInfo = await page.evaluate(() => {
+                    const allLinks = Array.from(document.querySelectorAll('a[href]')).slice(0, 30).map(a => ({
+                        href: a.getAttribute('href'),
+                        text: a.textContent?.trim().substring(0, 80),
+                        classes: a.className,
+                    }))
+                    const h1s = Array.from(document.querySelectorAll('h1, h2, h3')).map(h => h.textContent?.trim()).slice(0, 10)
+                    const bodyPreview = document.body.innerText?.substring(0, 2000)
+                    return { allLinks, h1s, bodyPreview }
+                })
+                console.log(`No cards found on page ${pageNum}. Debug info:`)
+                console.log('Headings:', JSON.stringify(debugInfo.h1s))
+                console.log('Links sample:', JSON.stringify(debugInfo.allLinks.slice(0, 10), null, 2))
+                console.log('Body preview:', debugInfo.bodyPreview?.substring(0, 500))
                 break
             }
 
-            const pageUrls = await page.evaluate(() => {
+            const currentSelector = foundSelector
+            const pageUrls = await page.evaluate((sel) => {
                 const results: { url: string; id: string; title: string }[] = []
-                document.querySelectorAll('a.opportunities-card__link').forEach(link => {
+                document.querySelectorAll(sel).forEach(link => {
                     const href = link.getAttribute('href') || ''
-                    const url = href.startsWith('http') ? href : `https://buyict.gov.au/sp${href}`
+                    const url = href.startsWith('http') ? href : `https://buyict.gov.au${href.startsWith('/') ? '' : '/sp'}${href}`
                     const ariaLabel = link.getAttribute('aria-label') || ''
-                    const titleEl = link.querySelector('strong')
-                    const title = titleEl?.textContent?.trim() || ''
-                    const idEl = link.querySelector('.opportunities-card__number')
-                    const idMatch = (idEl?.textContent || '').match(/ID:\s*([A-Z]+-\d+)/i) || ariaLabel.match(/ID:\s*([A-Z]+-\d+)/i)
+                    const text = link.textContent || ''
+                    // Try multiple patterns to find the title
+                    const titleEl = link.querySelector('strong') || link.querySelector('h3') || link.querySelector('h4') || link.querySelector('.title')
+                    const title = titleEl?.textContent?.trim() || text.split('\n').map(l => l.trim()).find(l => l.length > 10) || ''
+                    // Try multiple patterns to find the ID
+                    const idEl = link.querySelector('.opportunities-card__number') || link.querySelector('.id')
+                    const idText = idEl?.textContent || ariaLabel || text
+                    const idMatch = idText.match(/ID:\s*([A-Z]+-\d+)/i) || idText.match(/([A-Z]{2,5}-\d{3,})/i) || href.match(/opportunity_id=([^&]+)/i) || href.match(/sys_id=([a-f0-9]{32})/i)
                     const id = idMatch ? idMatch[1] : ''
-                    if (id && url) results.push({ url, id, title })
+                    if (url && (id || title)) results.push({ url, id: id || url, title })
                 })
                 return results
-            })
+            }, currentSelector)
 
             for (const item of pageUrls) {
                 if (!seenIds.has(item.id) && opportunityUrls.length < MAX_OPPORTUNITIES) {
@@ -160,8 +199,13 @@ async function main() {
 
             console.log(`Page ${pageNum}: Found ${pageUrls.length} items (total: ${opportunityUrls.length})`)
 
-            const nextButton = await page.$('ul.pagination li a:has-text("›")')
-            const isDisabled = nextButton ? await nextButton.evaluate((el: any) => el.closest('li')?.classList.contains('disabled')) : true
+            // Try multiple pagination selectors
+            let nextButton = await page.$('ul.pagination li a:has-text("›")')
+            if (!nextButton) nextButton = await page.$('button[aria-label="Next page"]')
+            if (!nextButton) nextButton = await page.$('a[aria-label="Next"]')
+            if (!nextButton) nextButton = await page.$('.pagination-next a')
+            if (!nextButton) nextButton = await page.$('li.next a')
+            const isDisabled = nextButton ? await nextButton.evaluate((el: any) => el.closest('li')?.classList.contains('disabled') || el.hasAttribute('disabled')) : true
 
             if (nextButton && !isDisabled && opportunityUrls.length < MAX_OPPORTUNITIES) {
                 await nextButton.click()
