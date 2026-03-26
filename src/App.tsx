@@ -9,6 +9,7 @@ import { CampaignSettings } from '@/pages/CampaignSettings'
 import { HubSpotSettings } from '@/pages/HubSpotSettings'
 import { ContentStudio } from '@/pages/ContentStudio'
 import { ImageStudio } from '@/pages/ImageStudio'
+import { SocialCalendar } from '@/pages/SocialCalendar'
 import {
   BuyICTDashboard,
   Opportunities as BuyICTOpportunities,
@@ -168,6 +169,7 @@ export default function App() {
         <Route path="/hubspot" element={<ProtectedRoute><HubSpotSettings /></ProtectedRoute>} />
         <Route path="/content-studio" element={<ProtectedRoute><ContentStudio /></ProtectedRoute>} />
         <Route path="/image-studio" element={<ProtectedRoute><ImageStudio /></ProtectedRoute>} />
+        <Route path="/calendar" element={<ProtectedRoute><SocialCalendar /></ProtectedRoute>} />
 
         {/* BuyICT Snoop Routes */}
         <Route path="/buyict" element={<ProtectedRoute><BuyICTDashboard /></ProtectedRoute>} />

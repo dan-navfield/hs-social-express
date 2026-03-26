@@ -12,6 +12,7 @@ import {
     Building2,
     Link2,
     Palette,
+    Calendar,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { useSpaceStore } from '@/stores/spaceStore'
@@ -29,6 +30,7 @@ const navItems = [
     { path: '/brand-studio', icon: Database, label: 'Brand Studio', isGlobal: false },
     { path: '/campaigns', icon: Megaphone, label: 'Campaigns', isGlobal: false },
     { path: '/posts', icon: FileText, label: 'All Posts', isGlobal: false },
+    { path: '/calendar', icon: Calendar, label: 'Calendar', isGlobal: false },
     { path: '/hubspot', icon: Link2, label: 'HubSpot', isGlobal: false },
 ]
 
