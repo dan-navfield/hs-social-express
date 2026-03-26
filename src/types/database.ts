@@ -29,6 +29,44 @@ export type SpaceRole = 'owner' | 'editor' | 'viewer'
 
 export type PromptType = 'linkedin_text' | 'image_prompt'
 
+export type ContentLayer = 'general' | 'things_we_sell' | 'market_insights' | 'hot_topics'
+
+export type ContentCategory =
+    | 'culture'
+    | 'milestone'
+    | 'behind_the_scenes'
+    | 'product'
+    | 'case_study'
+    | 'testimonial'
+    | 'industry_trend'
+    | 'opinion'
+    | 'data_insight'
+    | 'news_reaction'
+    | 'event'
+    | 'trending'
+
+export const CONTENT_LAYERS: { value: ContentLayer; label: string; description: string }[] = [
+    { value: 'general', label: 'General', description: 'Brand awareness, culture, values' },
+    { value: 'things_we_sell', label: 'Things We Sell', description: 'Products, services, case studies' },
+    { value: 'market_insights', label: 'Market Insights', description: 'Industry trends, thought leadership' },
+    { value: 'hot_topics', label: 'Hot Topics', description: 'Timely/reactive, what happened today' },
+]
+
+export const CONTENT_CATEGORIES: { value: ContentCategory; label: string; layer: ContentLayer }[] = [
+    { value: 'culture', label: 'Culture & Team', layer: 'general' },
+    { value: 'milestone', label: 'Milestones & Wins', layer: 'general' },
+    { value: 'behind_the_scenes', label: 'Behind the Scenes', layer: 'general' },
+    { value: 'product', label: 'Product/Service', layer: 'things_we_sell' },
+    { value: 'case_study', label: 'Case Study', layer: 'things_we_sell' },
+    { value: 'testimonial', label: 'Testimonial', layer: 'things_we_sell' },
+    { value: 'industry_trend', label: 'Industry Trend', layer: 'market_insights' },
+    { value: 'opinion', label: 'Opinion/POV', layer: 'market_insights' },
+    { value: 'data_insight', label: 'Data & Research', layer: 'market_insights' },
+    { value: 'news_reaction', label: 'News Reaction', layer: 'hot_topics' },
+    { value: 'event', label: 'Event/Conference', layer: 'hot_topics' },
+    { value: 'trending', label: 'Trending Topic', layer: 'hot_topics' },
+]
+
 // Generation settings stored in campaigns
 export interface GenerationSettings {
     tone_modifiers?: string
@@ -199,6 +237,9 @@ export interface Database {
                     hubspot_social_post_id: string | null
                     hubspot_status: string | null
                     hubspot_meta: Json | null
+                    content_layer: ContentLayer | null
+                    content_category: ContentCategory | null
+                    scheduled_at: string | null
                     error: string | null
                     created_at: string
                     updated_at: string
@@ -227,6 +268,9 @@ export interface Database {
                     hubspot_social_post_id?: string | null
                     hubspot_status?: string | null
                     hubspot_meta?: Json | null
+                    content_layer?: ContentLayer | null
+                    content_category?: ContentCategory | null
+                    scheduled_at?: string | null
                     error?: string | null
                     created_at?: string
                     updated_at?: string
@@ -255,6 +299,9 @@ export interface Database {
                     hubspot_social_post_id?: string | null
                     hubspot_status?: string | null
                     hubspot_meta?: Json | null
+                    content_layer?: ContentLayer | null
+                    content_category?: ContentCategory | null
+                    scheduled_at?: string | null
                     error?: string | null
                     created_at?: string
                     updated_at?: string
