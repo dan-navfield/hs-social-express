@@ -1,0 +1,46 @@
+name: BuyICT Daily Sync
+
+on:
+  schedule:
+    # Runs daily at 6:00 AM AEST (8:00 PM UTC previous day)
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+    # Allow manual trigger from GitHub Actions UI
+    inputs:
+      max_opportunities:
+        description: 'Maximum opportunities to scrape'
+        required: false
+        default: '100'
+      status:
+        description: 'Status filter (live, closing_soon, closed)'
+        required: false
+        default: 'live'
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install tsx playwright
+        working-directory: .
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Run BuyICT scraper
+        env:
+          WEBHOOK_URL: ${{ secrets.BUYICT_WEBHOOK_URL }}
+          SPACE_ID: ${{ secrets.BUYICT_SPACE_ID }}
+          MAX_OPPORTUNITIES: ${{ github.event.inputs.max_opportunities || '100' }}
+          STATUS: ${{ github.event.inputs.status || 'live' }}
+        run: npx tsx scripts/buyict-scraper.ts
