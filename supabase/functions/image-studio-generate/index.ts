@@ -62,8 +62,19 @@ Deno.serve(async (req) => {
             }
         }
 
-        // Build Gemini request
-        const model = 'gemini-2.5-flash-image'
+        // Load model from ai_settings (or use default)
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+        const supabase = createClient(supabaseUrl, supabaseKey)
+
+        const { data: aiSettings } = await supabase
+            .from('ai_settings')
+            .select('image_model')
+            .eq('space_id', space_id)
+            .single()
+
+        const model = aiSettings?.image_model || 'gemini-2.5-flash-image'
+        console.log('[image-studio] Using model:', model)
         const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`
 
         const parts = [
@@ -141,10 +152,6 @@ Deno.serve(async (req) => {
         }
 
         // Upload to Supabase Storage
-        const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-        const supabase = createClient(supabaseUrl, supabaseKey)
-
         const timestamp = Date.now()
         const random = Math.random().toString(36).substring(2, 10)
         const extension = imageMimeType === 'image/jpeg' ? 'jpg' : 'png'

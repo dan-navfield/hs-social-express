@@ -7,6 +7,7 @@ import { Layout } from '@/components/layout'
 import { Dashboard, Login, Posts, PromptStudio, BrandSettings, BrandStudio, Campaigns } from '@/pages'
 import { CampaignSettings } from '@/pages/CampaignSettings'
 import { HubSpotSettings } from '@/pages/HubSpotSettings'
+import { AISettings } from '@/pages/AISettings'
 import { ContentStudio } from '@/pages/ContentStudio'
 import { ImageStudio } from '@/pages/ImageStudio'
 import { SocialCalendar } from '@/pages/SocialCalendar'
@@ -167,6 +168,7 @@ export default function App() {
         <Route path="/brand-studio" element={<ProtectedRoute><BrandStudio /></ProtectedRoute>} />
         <Route path="/brand" element={<ProtectedRoute><BrandSettings /></ProtectedRoute>} />
         <Route path="/hubspot" element={<ProtectedRoute><HubSpotSettings /></ProtectedRoute>} />
+        <Route path="/ai-settings" element={<ProtectedRoute><AISettings /></ProtectedRoute>} />
         <Route path="/content-studio" element={<ProtectedRoute><ContentStudio /></ProtectedRoute>} />
         <Route path="/image-studio" element={<ProtectedRoute><ImageStudio /></ProtectedRoute>} />
         <Route path="/calendar" element={<ProtectedRoute><SocialCalendar /></ProtectedRoute>} />
