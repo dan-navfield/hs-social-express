@@ -89,6 +89,7 @@ function AssetBrowser({
     const [uploading, setUploading] = useState(false)
     const [dragOver, setDragOver] = useState(false)
     const [uploadError, setUploadError] = useState<string | null>(null)
+    const [previewAsset, setPreviewAsset] = useState<ContentAsset | null>(null)
 
     const fetchAssets = useCallback(async () => {
         const { data } = await supabase.from('content_assets').select('*').eq('space_id', spaceId).order('created_at', { ascending: false }).limit(50)
@@ -173,20 +174,59 @@ function AssetBrowser({
                                         const first = item.assets[0]
                                         return <div key={item.carouselId} className="relative rounded-lg overflow-hidden border border-[var(--color-gray-200)]">{first?.public_url && <img src={first.public_url} alt="" className="w-full aspect-square object-cover" />}<div className="absolute bottom-1 right-1 bg-black/60 text-white text-[9px] font-medium px-1.5 py-0.5 rounded"><Layers className="w-2.5 h-2.5 inline mr-0.5" />{item.assets.length}</div></div>
                                     }
-                                    const a = item.asset, isSel = referenceImages.some(r => r.url === a.public_url), atLim = referenceImages.length >= 3 && !isSel
-                                    return <button key={a.id} onClick={() => { if (!atLim) onToggleReference({ url: a.public_url || '', filename: a.filename }) }} className={`relative rounded-lg overflow-hidden border transition-colors ${isSel ? 'border-[var(--color-primary)] ring-1 ring-[var(--color-primary)]/40' : 'border-[var(--color-gray-200)] hover:border-[var(--color-gray-300)]'}`}>{a.public_url && <img src={a.public_url} alt={a.filename} className="w-full aspect-square object-cover" />}{isSel && <div className="absolute top-1 right-1 bg-[var(--color-primary)] rounded-full p-0.5"><Check className="w-2.5 h-2.5 text-white" /></div>}</button>
+                                    const a = item.asset, isSel = referenceImages.some(r => r.url === a.public_url)
+                                    return <button key={a.id} onClick={() => setPreviewAsset(a)} className={`relative rounded-lg overflow-hidden border transition-colors ${isSel ? 'border-[var(--color-primary)] ring-1 ring-[var(--color-primary)]/40' : 'border-[var(--color-gray-200)] hover:border-[var(--color-gray-300)]'}`}>{a.public_url && <img src={a.public_url} alt={a.filename} className="w-full aspect-square object-cover" />}{isSel && <div className="absolute top-1 right-1 bg-[var(--color-primary)] rounded-full p-0.5"><Check className="w-2.5 h-2.5 text-white" /></div>}</button>
                                 })}
                             </div></div>}
                             {otherAssets.length > 0 && <div><p className="text-[9px] uppercase tracking-wider text-[var(--color-gray-400)] mb-1.5">All Assets</p><div className="grid grid-cols-2 gap-1.5">
                                 {otherAssets.slice(0, 20).map(a => {
-                                    const isSel = referenceImages.some(r => r.url === a.public_url), atLim = referenceImages.length >= 3 && !isSel
-                                    return <button key={a.id} onClick={() => { if (!atLim) onToggleReference({ url: a.public_url || '', filename: a.filename }) }} className={`relative rounded-lg overflow-hidden border transition-colors ${isSel ? 'border-[var(--color-primary)] ring-1 ring-[var(--color-primary)]/40' : 'border-[var(--color-gray-200)] hover:border-[var(--color-gray-300)]'}`}>{a.public_url && <img src={a.public_url} alt={a.filename} className="w-full aspect-square object-cover" />}{isSel && <div className="absolute top-1 right-1 bg-[var(--color-primary)] rounded-full p-0.5"><Check className="w-2.5 h-2.5 text-white" /></div>}</button>
+                                    const isSel = referenceImages.some(r => r.url === a.public_url)
+                                    return <button key={a.id} onClick={() => setPreviewAsset(a)} className={`relative rounded-lg overflow-hidden border transition-colors ${isSel ? 'border-[var(--color-primary)] ring-1 ring-[var(--color-primary)]/40' : 'border-[var(--color-gray-200)] hover:border-[var(--color-gray-300)]'}`}>{a.public_url && <img src={a.public_url} alt={a.filename} className="w-full aspect-square object-cover" />}{isSel && <div className="absolute top-1 right-1 bg-[var(--color-primary)] rounded-full p-0.5"><Check className="w-2.5 h-2.5 text-white" /></div>}</button>
                                 })}
                             </div></div>}
                         </div>
                     )}
                 </div>
             </div>
+
+            {/* Asset Preview Modal */}
+            {previewAsset && previewAsset.public_url && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setPreviewAsset(null)}>
+                    <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <img src={previewAsset.public_url} alt={previewAsset.filename} className="w-full max-h-[50vh] object-contain bg-[var(--color-gray-100)]" />
+                        <div className="p-4 space-y-3">
+                            <p className="text-xs text-[var(--color-gray-500)] truncate">{previewAsset.filename}</p>
+                            {previewAsset.tags?.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                    {previewAsset.tags.map((tag, i) => (
+                                        <span key={i} className="px-2 py-0.5 rounded-full text-[10px] bg-[var(--color-gray-100)] text-[var(--color-gray-500)]">{tag}</span>
+                                    ))}
+                                </div>
+                            )}
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        const isSel = referenceImages.some(r => r.url === previewAsset.public_url)
+                                        if (!isSel && referenceImages.length >= 3) return
+                                        onToggleReference({ url: previewAsset.public_url!, filename: previewAsset.filename })
+                                        setPreviewAsset(null)
+                                    }}
+                                    disabled={!referenceImages.some(r => r.url === previewAsset.public_url) && referenceImages.length >= 3}
+                                    className="flex-1 px-3 py-2 rounded-lg bg-[var(--color-primary)] text-white text-xs font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    {referenceImages.some(r => r.url === previewAsset.public_url) ? 'Remove from References' : 'Use as Reference'}
+                                </button>
+                                <button
+                                    onClick={() => setPreviewAsset(null)}
+                                    className="px-3 py-2 rounded-lg border border-[var(--color-gray-200)] text-xs text-[var(--color-gray-500)] hover:bg-[var(--color-gray-50)]"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
