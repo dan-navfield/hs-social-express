@@ -192,8 +192,8 @@ function AssetBrowser({
             {/* Asset Preview Modal */}
             {previewAsset && previewAsset.public_url && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-8" onClick={() => setPreviewAsset(null)}>
-                    <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <img src={previewAsset.public_url} alt={previewAsset.filename} className="w-full max-h-[70vh] object-contain bg-[var(--color-gray-100)]" />
+                    <div className="bg-white rounded-b-xl shadow-2xl max-w-2xl w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <img src={previewAsset.public_url} alt={previewAsset.filename} className="w-full max-h-[70vh] object-cover" />
                         <div className="p-4 space-y-3">
                             <p className="text-xs text-[var(--color-gray-500)] truncate">{previewAsset.filename}</p>
                             {previewAsset.tags?.length > 0 && (
