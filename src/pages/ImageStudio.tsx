@@ -191,9 +191,9 @@ function AssetBrowser({
 
             {/* Asset Preview Modal */}
             {previewAsset && previewAsset.public_url && (
-                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setPreviewAsset(null)}>
-                    <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <img src={previewAsset.public_url} alt={previewAsset.filename} className="w-full max-h-[50vh] object-contain bg-[var(--color-gray-100)]" />
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-8" onClick={() => setPreviewAsset(null)}>
+                    <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <img src={previewAsset.public_url} alt={previewAsset.filename} className="w-full max-h-[70vh] object-contain bg-[var(--color-gray-100)]" />
                         <div className="p-4 space-y-3">
                             <p className="text-xs text-[var(--color-gray-500)] truncate">{previewAsset.filename}</p>
                             {previewAsset.tags?.length > 0 && (
@@ -580,7 +580,7 @@ export function ImageStudio() {
     const selectedLogoUrl = logos[selectedLogoIndex]?.url || ''
 
     return (
-        <div className="h-[calc(100vh-4rem)] flex flex-col">
+        <div className="h-screen flex flex-col">
             <div className="bg-white border-b border-[var(--color-gray-200)] px-6 py-3 flex items-center shrink-0">
                 <div className="flex items-center gap-3">
                     <div className="p-1.5 rounded-lg bg-[var(--color-primary)]/10"><ImageIcon className="w-4 h-4 text-[var(--color-primary)]" /></div>
