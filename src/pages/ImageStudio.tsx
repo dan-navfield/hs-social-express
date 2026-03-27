@@ -371,7 +371,7 @@ export function ImageStudio() {
         })
     }, [currentSpace])
 
-    const showToastMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
+    const showToastMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 6000) }
     const activeSlide = slides[activeSlideIndex]
     const activeGenerations = mode === 'carousel' ? (activeSlide?.generations ?? []) : generations
     const activePrompt = mode === 'carousel' ? (activeSlide?.prompt ?? '') : prompt
@@ -386,11 +386,26 @@ export function ImageStudio() {
         setGenerating(true)
         try {
             const { data, error } = await supabase.functions.invoke('image-studio-generate', { body: { prompt: cp.trim(), aspect_ratio: aspectRatio, reference_image_urls: referenceImages.length > 0 ? referenceImages.map(r => r.url) : undefined, space_id: currentSpace.id } })
-            if (error) throw error; if (data?.error) throw new Error(data.error)
+            if (error) {
+                // Try to read the error response body
+                let errMsg = error.message || 'Generation failed'
+                try {
+                    if (error.context?.json) {
+                        const body = await error.context.json()
+                        errMsg = body?.error || errMsg
+                    }
+                } catch {}
+                throw new Error(errMsg)
+            }
+            if (data?.error) throw new Error(data.error)
             const ni: GeneratedImage = { id: data.asset.id, url: data.asset.publicUrl, prompt: cp.trim(), aspectRatio, createdAt: new Date() }
             if (mode === 'carousel') { setSlides(p => p.map((s, i) => i !== activeSlideIndex ? s : { ...s, generations: [...s.generations, ni], selectedIndex: s.generations.length })) } else { setGenerations(p => [...p, ni]) }
             setConfirmedImage(latestImage); setLatestImage(ni); setSelectedImage(ni); mutateAssets()
-        } catch { showToastMsg('Generation failed') } finally { setGenerating(false) }
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Generation failed'
+            console.error('Image generation error:', err)
+            showToastMsg(msg)
+        } finally { setGenerating(false) }
     }, [currentSpace, mode, prompt, basePrompt, slides, activeSlideIndex, aspectRatio, referenceImages, generating, latestImage, refinement, mutateAssets])
 
     const handleGenerateCarousel = useCallback(async () => {

@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
             .from('ai_settings')
             .select('image_model')
             .eq('space_id', space_id)
-            .single()
+            .maybeSingle()
 
         const model = aiSettings?.image_model || 'gemini-2.5-flash-image'
         console.log('[image-studio] Using model:', model)
