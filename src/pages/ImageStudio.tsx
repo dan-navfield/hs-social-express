@@ -77,12 +77,13 @@ function aspectRatioToClass(ratio: string): string {
 // ── AssetBrowser ─────────────────────────────────────
 
 function AssetBrowser({
-    referenceImages, onToggleReference, spaceId, refreshKey,
+    referenceImages, onToggleReference, spaceId, refreshKey, onCreatePostFromAsset,
 }: {
     referenceImages: { url: string; filename: string }[]
     onToggleReference: (asset: { url: string; filename: string }) => void
     spaceId: string
     refreshKey: number
+    onCreatePostFromAsset: (asset: ContentAsset) => void
 }) {
     const [assets, setAssets] = useState<ContentAsset[]>([])
     const [isLoading, setIsLoading] = useState(true)
@@ -192,7 +193,11 @@ function AssetBrowser({
             {/* Asset Preview Modal */}
             {previewAsset && previewAsset.public_url && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-8" onClick={() => setPreviewAsset(null)}>
-                    <div className="bg-white rounded-b-xl shadow-2xl max-w-2xl w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+                    <div className="bg-white rounded-b-xl shadow-2xl max-w-2xl w-full overflow-hidden relative" onClick={e => e.stopPropagation()}>
+                        {/* Close X */}
+                        <button onClick={() => setPreviewAsset(null)} className="absolute top-3 right-3 z-10 p-1.5 rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors">
+                            <X className="w-4 h-4" />
+                        </button>
                         <img src={previewAsset.public_url} alt={previewAsset.filename} className="w-full max-h-[70vh] object-cover" />
                         <div className="p-4 space-y-3">
                             <p className="text-xs text-[var(--color-gray-500)] truncate">{previewAsset.filename}</p>
@@ -217,10 +222,14 @@ function AssetBrowser({
                                     {referenceImages.some(r => r.url === previewAsset.public_url) ? 'Remove from References' : 'Use as Reference'}
                                 </button>
                                 <button
-                                    onClick={() => setPreviewAsset(null)}
-                                    className="px-3 py-2 rounded-lg border border-[var(--color-gray-200)] text-xs text-[var(--color-gray-500)] hover:bg-[var(--color-gray-50)]"
+                                    onClick={() => {
+                                        // Set this asset as the selected image so Create Post can use it
+                                        onCreatePostFromAsset(previewAsset)
+                                        setPreviewAsset(null)
+                                    }}
+                                    className="px-3 py-2 rounded-lg bg-[var(--color-primary)]/10 text-[var(--color-primary)] text-xs font-medium hover:bg-[var(--color-primary)]/20"
                                 >
-                                    Close
+                                    Create Post
                                 </button>
                             </div>
                         </div>
@@ -588,7 +597,13 @@ export function ImageStudio() {
                 </div>
             </div>
             <div className="flex-1 flex overflow-hidden">
-                <AssetBrowser referenceImages={referenceImages} onToggleReference={a => { setReferenceImages(p => { const e = p.findIndex(r => r.url === a.url); if (e >= 0) return p.filter((_, i) => i !== e); if (p.length >= 3) return p; return [...p, a] }) }} spaceId={currentSpace.id} refreshKey={refreshKey} />
+                <AssetBrowser referenceImages={referenceImages} onToggleReference={a => { setReferenceImages(p => { const e = p.findIndex(r => r.url === a.url); if (e >= 0) return p.filter((_, i) => i !== e); if (p.length >= 3) return p; return [...p, a] }) }} spaceId={currentSpace.id} refreshKey={refreshKey} onCreatePostFromAsset={(asset) => {
+                    // Set up a GeneratedImage from the asset so Create Post modal can use it
+                    const img: GeneratedImage = { id: asset.id, url: asset.public_url || '', prompt: asset.filename, aspectRatio: '1:1', createdAt: new Date(asset.created_at) }
+                    setSelectedImage(img)
+                    setCreatePostTitle(asset.filename.replace(/\.\w+$/, '').replace(/^\d+-\w+$/, 'Untitled'))
+                    setShowCreatePostModal(true)
+                }} />
                 <div className="flex-1 flex flex-col overflow-y-auto bg-[var(--color-gray-50)]">
                     <div className="px-6 py-6 space-y-6 flex-1">
                         <div className="flex items-center gap-1 border-b border-[var(--color-gray-200)] pb-3">
