@@ -14,7 +14,7 @@ Deno.serve(async (req) => {
     }
 
     try {
-        const { prompt, aspect_ratio, reference_image_urls, space_id } = await req.json()
+        const { prompt, aspect_ratio, reference_image_urls, space_id, model: requestModel } = await req.json()
 
         if (!prompt?.trim()) {
             return new Response(
@@ -73,7 +73,8 @@ Deno.serve(async (req) => {
             .eq('space_id', space_id)
             .maybeSingle()
 
-        const model = aiSettings?.image_model || 'gemini-2.5-flash-image'
+        // Request model takes priority, then ai_settings, then default
+        const model = requestModel || aiSettings?.image_model || 'gemini-2.5-flash-image'
         console.log('[image-studio] Using model:', model)
         const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`
 

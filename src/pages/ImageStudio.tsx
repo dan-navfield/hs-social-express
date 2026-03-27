@@ -57,6 +57,12 @@ interface ContentAsset {
 
 const ASPECT_RATIOS = ['1:1', '4:5', '9:16', '16:9', '3:4'] as const
 
+const GEMINI_MODELS = [
+    { value: 'gemini-2.5-flash-image', label: 'Flash Image' },
+    { value: 'gemini-2.5-pro-image', label: 'Pro Image' },
+    { value: 'gemini-2.0-flash-exp', label: '2.0 Flash Exp' },
+] as const
+
 function aspectRatioToClass(ratio: string): string {
     switch (ratio) {
         case '1:1': return 'aspect-square'
@@ -252,8 +258,8 @@ function ComparisonView({ previous, latest, generations, aspectRatio, generating
 
 // ── PromptBar ────────────────────────────────────────
 
-function PromptBar({ prompt, onPromptChange, aspectRatio, onAspectRatioChange, referenceImages, onRemoveReference, generating, onGenerate, mode = 'single', hasGenerations = false, refinement, onRefinementChange }: {
-    prompt: string; onPromptChange: (v: string) => void; aspectRatio: string; onAspectRatioChange: (v: string) => void; referenceImages: { url: string; filename: string }[]; onRemoveReference: (i: number) => void; generating: boolean; onGenerate: () => void; mode?: 'single' | 'carousel'; hasGenerations?: boolean; refinement: string; onRefinementChange: (v: string) => void
+function PromptBar({ prompt, onPromptChange, aspectRatio, onAspectRatioChange, imageModel, onImageModelChange, referenceImages, onRemoveReference, generating, onGenerate, mode = 'single', hasGenerations = false, refinement, onRefinementChange }: {
+    prompt: string; onPromptChange: (v: string) => void; aspectRatio: string; onAspectRatioChange: (v: string) => void; imageModel: string; onImageModelChange: (v: string) => void; referenceImages: { url: string; filename: string }[]; onRemoveReference: (i: number) => void; generating: boolean; onGenerate: () => void; mode?: 'single' | 'carousel'; hasGenerations?: boolean; refinement: string; onRefinementChange: (v: string) => void
 }) {
     return (
         <div className="space-y-3">
@@ -272,9 +278,19 @@ function PromptBar({ prompt, onPromptChange, aspectRatio, onAspectRatioChange, r
                 </div>
             )}
             <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-1.5">{ASPECT_RATIOS.map(r => (
-                    <button key={r} onClick={() => onAspectRatioChange(r)} className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${aspectRatio === r ? 'bg-[var(--color-primary)] text-white' : 'bg-[var(--color-gray-100)] text-[var(--color-gray-500)] hover:bg-[var(--color-gray-200)]'}`}>{r}</button>
-                ))}</div>
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1.5">{ASPECT_RATIOS.map(r => (
+                        <button key={r} onClick={() => onAspectRatioChange(r)} className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${aspectRatio === r ? 'bg-[var(--color-primary)] text-white' : 'bg-[var(--color-gray-100)] text-[var(--color-gray-500)] hover:bg-[var(--color-gray-200)]'}`}>{r}</button>
+                    ))}</div>
+                    <div className="w-px h-4 bg-[var(--color-gray-200)]" />
+                    <select
+                        value={imageModel}
+                        onChange={e => onImageModelChange(e.target.value)}
+                        className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-[var(--color-gray-100)] text-[var(--color-gray-500)] border-0 focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]/30 cursor-pointer"
+                    >
+                        {GEMINI_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    </select>
+                </div>
                 <button onClick={onGenerate} disabled={generating || !prompt.trim()} className="px-4 py-2 rounded-lg bg-[var(--color-primary)] text-white text-xs font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5">
                     {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : hasGenerations ? <RotateCcw className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5" />}
                     {hasGenerations ? 'Regenerate' : 'Generate'}
@@ -338,6 +354,7 @@ export function ImageStudio() {
     const [mode, setMode] = useState<'single' | 'carousel'>('single')
     const [prompt, setPrompt] = useState('')
     const [aspectRatio, setAspectRatio] = useState<string>('1:1')
+    const [imageModel, setImageModel] = useState('gemini-2.5-flash-image')
     const [referenceImages, setReferenceImages] = useState<{ url: string; filename: string }[]>([])
     const [generations, setGenerations] = useState<GeneratedImage[]>([])
     const [confirmedImage, setConfirmedImage] = useState<GeneratedImage | null>(null)
@@ -385,7 +402,7 @@ export function ImageStudio() {
         if (refinement.trim()) cp = `${cp.trim()}\n\nAdditional refinements: ${refinement.trim()}`
         setGenerating(true)
         try {
-            const { data, error } = await supabase.functions.invoke('image-studio-generate', { body: { prompt: cp.trim(), aspect_ratio: aspectRatio, reference_image_urls: referenceImages.length > 0 ? referenceImages.map(r => r.url) : undefined, space_id: currentSpace.id } })
+            const { data, error } = await supabase.functions.invoke('image-studio-generate', { body: { prompt: cp.trim(), aspect_ratio: aspectRatio, reference_image_urls: referenceImages.length > 0 ? referenceImages.map(r => r.url) : undefined, space_id: currentSpace.id, model: imageModel } })
             if (error) {
                 // Try to read the error response body
                 let errMsg = error.message || 'Generation failed'
@@ -422,7 +439,7 @@ export function ImageStudio() {
             for (let i = 0; i < ns.length; i++) {
                 setActiveSlideIndex(i)
                 const sfp = basePrompt.trim() ? `${basePrompt.trim()}\n\n${ns[i].prompt}` : ns[i].prompt
-                const { data: gd, error: ge } = await supabase.functions.invoke('image-studio-generate', { body: { prompt: sfp, aspect_ratio: aspectRatio, reference_image_urls: referenceImages.length > 0 ? referenceImages.map(r => r.url) : undefined, space_id: currentSpace.id } })
+                const { data: gd, error: ge } = await supabase.functions.invoke('image-studio-generate', { body: { prompt: sfp, aspect_ratio: aspectRatio, reference_image_urls: referenceImages.length > 0 ? referenceImages.map(r => r.url) : undefined, space_id: currentSpace.id, model: imageModel } })
                 if (ge || gd?.error) { showToastMsg(`Failed slide ${i + 1}`); continue }
                 const ni: GeneratedImage = { id: gd.asset.id, url: gd.asset.publicUrl, prompt: sfp, aspectRatio, createdAt: new Date() }
                 setSlides(p => p.map((s, idx) => idx !== i ? s : { ...s, generations: [ni], selectedIndex: 0 }))
@@ -568,7 +585,7 @@ export function ImageStudio() {
                             onSelect={() => { if (latestImage) { setSelectedImage(latestImage); if (mode === 'carousel') setSlides(p => p.map((s, i) => { if (i !== activeSlideIndex) return s; const gi = s.generations.findIndex(g => g.id === latestImage.id); return { ...s, selectedIndex: gi >= 0 ? gi : s.selectedIndex } })) } }}
                             onSelectGeneration={g => { setConfirmedImage(latestImage); setLatestImage(g); setSelectedImage(g) }}
                         />}
-                        <PromptBar prompt={activePrompt} onPromptChange={setActivePrompt} aspectRatio={aspectRatio} onAspectRatioChange={setAspectRatio} referenceImages={referenceImages} onRemoveReference={i => setReferenceImages(p => p.filter((_, j) => j !== i))} generating={generating} onGenerate={mode === 'carousel' && slides.every(s => s.generations.length === 0) ? handleGenerateCarousel : handleGenerate} mode={mode} hasGenerations={activeGenerations.length > 0} refinement={refinement} onRefinementChange={setRefinement} />
+                        <PromptBar prompt={activePrompt} onPromptChange={setActivePrompt} aspectRatio={aspectRatio} onAspectRatioChange={setAspectRatio} imageModel={imageModel} onImageModelChange={setImageModel} referenceImages={referenceImages} onRemoveReference={i => setReferenceImages(p => p.filter((_, j) => j !== i))} generating={generating} onGenerate={mode === 'carousel' && slides.every(s => s.generations.length === 0) ? handleGenerateCarousel : handleGenerate} mode={mode} hasGenerations={activeGenerations.length > 0} refinement={refinement} onRefinementChange={setRefinement} />
                     </div>
                     <div className="shrink-0 px-6 py-3 border-t border-[var(--color-gray-200)] flex items-center gap-2 bg-white">
                         <Button variant="secondary" size="sm" disabled={!selectedImage} onClick={async () => { if (selectedImage) { const av = await detectVariant(selectedImage.url); const vi = logos.findIndex(l => l.label.toLowerCase().includes(av)); if (vi >= 0) setSelectedLogoIndex(vi) }; setShowLogoPanel(true) }}><ImageIcon className="w-3.5 h-3.5 mr-1.5" />Add Logo</Button>
