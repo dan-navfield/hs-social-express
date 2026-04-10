@@ -45,46 +45,61 @@ Deno.serve(async (req) => {
             )
         }
 
-        // Accept pre-encoded base64 reference images from client, or fall back to URL fetch
+        // Set up Supabase client first (needed for storage download)
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+        const supabase = createClient(supabaseUrl, supabaseKey)
+
+        // Fetch reference images and convert to base64 (max 3)
         const referenceImages: { data: string; mimeType: string }[] = []
-        if (reference_images?.length) {
-            // Client already converted to base64
-            for (const ref of (reference_images as { data: string; mimeType: string }[]).slice(0, 3)) {
-                if (ref.data && ref.mimeType) {
-                    referenceImages.push(ref)
-                }
-            }
-            console.log('[image-studio] Using %d pre-encoded reference images', referenceImages.length)
-        } else if (reference_image_urls?.length) {
-            // Legacy: fetch URLs server-side
+        if (reference_image_urls?.length) {
             for (const url of (reference_image_urls as string[]).slice(0, 3)) {
                 try {
-                    const refRes = await fetch(url)
-                    if (!refRes.ok) {
-                        console.warn('[image-studio] Failed to fetch reference image:', url, refRes.status)
-                        continue
+                    // Extract storage path from public URL to download via Supabase storage
+                    const storagePrefix = `${supabaseUrl}/storage/v1/object/public/generated-images/`
+                    if (url.startsWith(storagePrefix)) {
+                        const storagePath = decodeURIComponent(url.slice(storagePrefix.length))
+                        console.log('[image-studio] Downloading from storage:', storagePath)
+                        const { data: fileData, error: dlError } = await supabase.storage
+                            .from('generated-images')
+                            .download(storagePath)
+                        if (dlError) {
+                            console.error('[image-studio] Storage download error:', dlError)
+                            continue
+                        }
+                        const buffer = await fileData.arrayBuffer()
+                        const bytes = new Uint8Array(buffer)
+                        let binary = ''
+                        const chunkSize = 8192
+                        for (let i = 0; i < bytes.length; i += chunkSize) {
+                            binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+                        }
+                        referenceImages.push({ data: btoa(binary), mimeType: fileData.type || 'image/png' })
+                        console.log('[image-studio] Reference loaded via storage (%d bytes)', bytes.length)
+                    } else {
+                        // Fallback: direct URL fetch for non-storage URLs
+                        console.log('[image-studio] Fetching reference URL:', url.slice(-50))
+                        const refRes = await fetch(url)
+                        if (!refRes.ok) {
+                            console.warn('[image-studio] Fetch failed:', refRes.status)
+                            continue
+                        }
+                        const refBuffer = await refRes.arrayBuffer()
+                        const bytes = new Uint8Array(refBuffer)
+                        let binary = ''
+                        const chunkSize = 8192
+                        for (let i = 0; i < bytes.length; i += chunkSize) {
+                            binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+                        }
+                        referenceImages.push({ data: btoa(binary), mimeType: refRes.headers.get('content-type') || 'image/png' })
+                        console.log('[image-studio] Reference loaded via fetch (%d bytes)', bytes.length)
                     }
-                    const refBuffer = await refRes.arrayBuffer()
-                    const refMimeType = refRes.headers.get('content-type') || 'image/png'
-                    const bytes = new Uint8Array(refBuffer)
-                    let binary = ''
-                    const chunkSize = 8192
-                    for (let i = 0; i < bytes.length; i += chunkSize) {
-                        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
-                    }
-                    const base64 = btoa(binary)
-                    referenceImages.push({ data: base64, mimeType: refMimeType })
                 } catch (refErr) {
                     console.error('[image-studio] Error loading reference image:', refErr)
                 }
             }
-            console.log('[image-studio] Fetched %d reference images from URLs', referenceImages.length)
         }
-
-        // Load model from ai_settings (or use default)
-        const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-        const supabase = createClient(supabaseUrl, supabaseKey)
+        console.log('[image-studio] Total reference images: %d', referenceImages.length)
 
         const { data: aiSettings } = await supabase
             .from('ai_settings')
