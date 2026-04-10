@@ -442,7 +442,8 @@ export function ImageStudio() {
     useEffect(() => {
         if (!currentSpace) return
         // Load logos from brand_profile (same source as campaign posts)
-        supabase.from('brand_profile').select('logo_url, logo_top_left_url, logo_bottom_right_url').eq('space_id', currentSpace.id).single().then(({ data }) => {
+        supabase.from('brand_profile').select('logo_url, logo_top_left_url, logo_bottom_right_url').eq('space_id', currentSpace.id).single().then(({ data, error }) => {
+            if (error) console.warn('brand_profile query error:', error.code, error.message)
             if (!data) return
             const found: { url: string; label: string }[] = []
             if (data.logo_url) found.push({ url: data.logo_url, label: 'Main Logo' })
