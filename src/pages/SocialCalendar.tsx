@@ -32,6 +32,7 @@ interface CalendarPost {
     image_status: string
     generated_image_path: string | null
     final_image_path: string | null
+    post_images: { count: number }[]
 }
 
 const CHANNELS = [
@@ -209,7 +210,8 @@ type ContentTypeFilter = '' | 'has_image' | 'image_only' | 'text_only' | 'has_bo
 
 function matchesContentType(post: CalendarPost, filter: ContentTypeFilter): boolean {
     if (!filter) return true
-    const hasImage = post.image_status === 'ready' || !!post.generated_image_path || !!post.final_image_path
+    const imageCount = post.post_images?.[0]?.count || 0
+    const hasImage = imageCount > 0 || !!post.generated_image_path || !!post.final_image_path
     const hasBody = !!post.body
     switch (filter) {
         case 'has_image': return hasImage
@@ -339,7 +341,7 @@ export function SocialCalendar() {
         setIsLoading(true)
         const { data } = await supabase
             .from('posts')
-            .select('id, title, body, status, content_layer, content_category, scheduled_at, campaign:campaigns(name), image_status, generated_image_path, final_image_path')
+            .select('id, title, body, status, content_layer, content_category, scheduled_at, campaign:campaigns(name), image_status, generated_image_path, final_image_path, post_images(count)')
             .eq('space_id', currentSpace.id)
             .in('status', ['draft', 'ready_to_publish', 'scheduled', 'published', 'sent_to_hubspot'])
             .order('created_at', { ascending: false })

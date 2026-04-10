@@ -77,13 +77,14 @@ function aspectRatioToClass(ratio: string): string {
 // ── AssetBrowser ─────────────────────────────────────
 
 function AssetBrowser({
-    referenceImages, onToggleReference, spaceId, refreshKey, onCreatePostFromAsset,
+    referenceImages, onToggleReference, spaceId, refreshKey, onCreatePostFromAsset, onLoadToWorkbench,
 }: {
     referenceImages: { url: string; filename: string }[]
     onToggleReference: (asset: { url: string; filename: string }) => void
     spaceId: string
     refreshKey: number
     onCreatePostFromAsset: (asset: ContentAsset) => void
+    onLoadToWorkbench: (asset: ContentAsset) => void
 }) {
     const [assets, setAssets] = useState<ContentAsset[]>([])
     const [isLoading, setIsLoading] = useState(true)
@@ -223,7 +224,15 @@ function AssetBrowser({
                                 </button>
                                 <button
                                     onClick={() => {
-                                        // Set this asset as the selected image so Create Post can use it
+                                        onLoadToWorkbench(previewAsset)
+                                        setPreviewAsset(null)
+                                    }}
+                                    className="px-3 py-2 rounded-lg bg-[var(--color-primary)]/10 text-[var(--color-primary)] text-xs font-medium hover:bg-[var(--color-primary)]/20"
+                                >
+                                    Edit in Workbench
+                                </button>
+                                <button
+                                    onClick={() => {
                                         onCreatePostFromAsset(previewAsset)
                                         setPreviewAsset(null)
                                     }}
@@ -603,6 +612,13 @@ export function ImageStudio() {
                     setSelectedImage(img)
                     setCreatePostTitle(asset.filename.replace(/\.\w+$/, '').replace(/^\d+-\w+$/, 'Untitled'))
                     setShowCreatePostModal(true)
+                }} onLoadToWorkbench={(asset) => {
+                    // Load library image into the workbench so user can add logo, download, etc.
+                    const ratio = asset.tags?.find(t => t.startsWith('ratio:'))?.replace('ratio:', '') || '1:1'
+                    const img: GeneratedImage = { id: asset.id, url: asset.public_url || '', prompt: asset.filename, aspectRatio: ratio, createdAt: new Date(asset.created_at) }
+                    setLatestImage(img)
+                    setSelectedImage(img)
+                    setConfirmedImage(null)
                 }} />
                 <div className="flex-1 flex flex-col overflow-y-auto bg-[var(--color-gray-50)]">
                     <div className="px-6 py-6 space-y-6 flex-1">
