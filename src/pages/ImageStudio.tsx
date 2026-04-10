@@ -122,7 +122,22 @@ function AssetBrowser({
         } finally { setUploading(false) }
     }, [spaceId, fetchAssets, onToggleReference, referenceImages.length])
 
-    const handleDrop = useCallback((e: React.DragEvent) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length > 0) handleUpload(e.dataTransfer.files) }, [handleUpload])
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault(); setDragOver(false)
+        // Handle internal library asset drag
+        const assetData = e.dataTransfer.getData('application/x-library-asset')
+        if (assetData) {
+            try {
+                const asset = JSON.parse(assetData) as { url: string; filename: string }
+                if (asset.url && referenceImages.length < 3 && !referenceImages.some(r => r.url === asset.url)) {
+                    onToggleReference(asset)
+                }
+            } catch {}
+            return
+        }
+        // Handle file drop from OS
+        if (e.dataTransfer.files.length > 0) handleUpload(e.dataTransfer.files)
+    }, [handleUpload, referenceImages, onToggleReference])
 
     const studioAssets = assets.filter(a => a.tags?.includes('image-studio'))
     const otherAssets = assets.filter(a => !a.tags?.includes('image-studio'))
@@ -177,13 +192,13 @@ function AssetBrowser({
                                         return <div key={item.carouselId} className="relative rounded-lg overflow-hidden border border-[var(--color-gray-200)]">{first?.public_url && <img src={first.public_url} alt="" className="w-full aspect-square object-cover" />}<div className="absolute bottom-1 right-1 bg-black/60 text-white text-[9px] font-medium px-1.5 py-0.5 rounded"><Layers className="w-2.5 h-2.5 inline mr-0.5" />{item.assets.length}</div></div>
                                     }
                                     const a = item.asset, isSel = referenceImages.some(r => r.url === a.public_url)
-                                    return <button key={a.id} onClick={() => setPreviewAsset(a)} className={`relative rounded-lg overflow-hidden border transition-colors ${isSel ? 'border-[var(--color-primary)] ring-1 ring-[var(--color-primary)]/40' : 'border-[var(--color-gray-200)] hover:border-[var(--color-gray-300)]'}`}>{a.public_url && <img src={a.public_url} alt={a.filename} className="w-full aspect-square object-cover" />}{isSel && <div className="absolute top-1 right-1 bg-[var(--color-primary)] rounded-full p-0.5"><Check className="w-2.5 h-2.5 text-white" /></div>}</button>
+                                    return <button key={a.id} draggable onDragStart={(e) => { e.dataTransfer.setData('application/x-library-asset', JSON.stringify({ url: a.public_url, filename: a.filename })) }} onClick={() => setPreviewAsset(a)} className={`relative rounded-lg overflow-hidden border transition-colors ${isSel ? 'border-[var(--color-primary)] ring-1 ring-[var(--color-primary)]/40' : 'border-[var(--color-gray-200)] hover:border-[var(--color-gray-300)]'}`}>{a.public_url && <img src={a.public_url} alt={a.filename} className="w-full aspect-square object-cover" draggable={false} />}{isSel && <div className="absolute top-1 right-1 bg-[var(--color-primary)] rounded-full p-0.5"><Check className="w-2.5 h-2.5 text-white" /></div>}</button>
                                 })}
                             </div></div>}
                             {otherAssets.length > 0 && <div><p className="text-[9px] uppercase tracking-wider text-[var(--color-gray-400)] mb-1.5">All Assets</p><div className="grid grid-cols-2 gap-1.5">
                                 {otherAssets.slice(0, 20).map(a => {
                                     const isSel = referenceImages.some(r => r.url === a.public_url)
-                                    return <button key={a.id} onClick={() => setPreviewAsset(a)} className={`relative rounded-lg overflow-hidden border transition-colors ${isSel ? 'border-[var(--color-primary)] ring-1 ring-[var(--color-primary)]/40' : 'border-[var(--color-gray-200)] hover:border-[var(--color-gray-300)]'}`}>{a.public_url && <img src={a.public_url} alt={a.filename} className="w-full aspect-square object-cover" />}{isSel && <div className="absolute top-1 right-1 bg-[var(--color-primary)] rounded-full p-0.5"><Check className="w-2.5 h-2.5 text-white" /></div>}</button>
+                                    return <button key={a.id} draggable onDragStart={(e) => { e.dataTransfer.setData('application/x-library-asset', JSON.stringify({ url: a.public_url, filename: a.filename })) }} onClick={() => setPreviewAsset(a)} className={`relative rounded-lg overflow-hidden border transition-colors ${isSel ? 'border-[var(--color-primary)] ring-1 ring-[var(--color-primary)]/40' : 'border-[var(--color-gray-200)] hover:border-[var(--color-gray-300)]'}`}>{a.public_url && <img src={a.public_url} alt={a.filename} className="w-full aspect-square object-cover" draggable={false} />}{isSel && <div className="absolute top-1 right-1 bg-[var(--color-primary)] rounded-full p-0.5"><Check className="w-2.5 h-2.5 text-white" /></div>}</button>
                                 })}
                             </div></div>}
                         </div>

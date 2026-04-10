@@ -51,16 +51,28 @@ Deno.serve(async (req) => {
             for (const url of (reference_image_urls as string[]).slice(0, 3)) {
                 try {
                     const refRes = await fetch(url)
-                    if (!refRes.ok) continue
+                    if (!refRes.ok) {
+                        console.warn('[image-studio] Failed to fetch reference image:', url, refRes.status)
+                        continue
+                    }
                     const refBuffer = await refRes.arrayBuffer()
                     const refMimeType = refRes.headers.get('content-type') || 'image/png'
-                    const base64 = btoa(String.fromCharCode(...new Uint8Array(refBuffer)))
+                    // Convert to base64 in chunks to avoid stack overflow on large images
+                    const bytes = new Uint8Array(refBuffer)
+                    let binary = ''
+                    const chunkSize = 8192
+                    for (let i = 0; i < bytes.length; i += chunkSize) {
+                        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+                    }
+                    const base64 = btoa(binary)
                     referenceImages.push({ data: base64, mimeType: refMimeType })
-                } catch {
-                    // Skip failed reference fetches
+                    console.log('[image-studio] Reference image loaded:', url.slice(-40), `(${bytes.length} bytes)`)
+                } catch (refErr) {
+                    console.error('[image-studio] Error loading reference image:', url, refErr)
                 }
             }
         }
+        console.log('[image-studio] Reference images loaded:', referenceImages.length)
 
         // Load model from ai_settings (or use default)
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -85,13 +97,14 @@ Deno.serve(async (req) => {
             { text: prompt.trim() },
         ]
 
-        const body = {
+        const body: Record<string, unknown> = {
             contents: [{ parts }],
             generationConfig: {
                 responseModalities: ['IMAGE', 'TEXT'],
-                imageConfig: { aspectRatio: resolvedRatio },
+                ...(referenceImages.length === 0 ? { imageConfig: { aspectRatio: resolvedRatio } } : {}),
             },
         }
+        console.log('[image-studio] Request: model=%s, refs=%d, ratio=%s', model, referenceImages.length, resolvedRatio)
 
         // Retry up to 3 times on rate-limit
         let lastError: string | null = null
@@ -117,8 +130,14 @@ Deno.serve(async (req) => {
             if (!geminiRes.ok) {
                 const errorBody = await geminiRes.text()
                 console.error('[image-studio] Gemini error:', geminiRes.status, errorBody)
+                // Parse error message from Gemini response
+                let errorMsg = `Gemini API error (${geminiRes.status})`
+                try {
+                    const errJson = JSON.parse(errorBody)
+                    errorMsg = errJson.error?.message || errorMsg
+                } catch {}
                 return new Response(
-                    JSON.stringify({ error: `Gemini API error (${geminiRes.status})` }),
+                    JSON.stringify({ error: errorMsg }),
                     { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
                 )
             }
