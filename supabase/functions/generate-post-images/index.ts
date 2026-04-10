@@ -61,11 +61,11 @@ serve(async (req) => {
     const dimensions = ASPECT_RATIO_DIMENSIONS[settings?.aspect_ratio || '1:1']
     let enhancedPrompt = prompt
 
-    // Add style modifier
+    // Add style modifier (aligned with anti-generic prompt strategy)
     if (settings?.style === 'photographic') {
-      enhancedPrompt = `Professional photograph: ${enhancedPrompt}. High-resolution, natural lighting, realistic style.`
+      enhancedPrompt = `${enhancedPrompt}. Documentary-style, natural lighting, authentic and unposed, candid human moments.`
     } else if (settings?.style === 'illustrative') {
-      enhancedPrompt = `Editorial illustration: ${enhancedPrompt}. Clean, modern, vector-style illustration.`
+      enhancedPrompt = `${enhancedPrompt}. Editorial illustration style, clever visual metaphor, restrained colour palette, high contrast.`
     }
 
     // Add exclusions
@@ -131,7 +131,7 @@ serve(async (req) => {
                 {
                   parts: [
                     {
-                      text: `Generate a professional image for LinkedIn/social media. ${enhancedPrompt}`,
+                      text: enhancedPrompt,
                     },
                   ],
                 },

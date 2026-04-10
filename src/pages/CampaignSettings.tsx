@@ -416,13 +416,18 @@ export function CampaignSettings() {
     const handleGeneratePosts = async () => {
         if (!id || ideas.length === 0) return
 
+        // Determine which ideas to generate posts for
+        const ideasToGenerate = selectedIdeaIndices.size > 0
+            ? Array.from(selectedIdeaIndices).sort((a, b) => a - b).map(i => ideas[i])
+            : ideas
+
         // Save ideas to campaign first
         await handleSave()
 
         setIsGeneratingPosts(true)
         setGenerationProgress({
             current: 0,
-            total: ideas.length,
+            total: ideasToGenerate.length,
             stage: 'connecting',
             currentTopic: '',
             completedTopics: []
@@ -443,7 +448,7 @@ export function CampaignSettings() {
             setGenerationProgress(prev => ({
                 ...prev,
                 stage: 'generating',
-                currentTopic: ideas[0] || 'Starting...'
+                currentTopic: ideasToGenerate[0] || 'Starting...'
             }))
 
             // Poll for progress
@@ -455,19 +460,19 @@ export function CampaignSettings() {
                     .order('sequence_number', { ascending: true })
 
                 const count = postsData?.length || 0
-                const completedTopics = postsData?.map(p => p.topic || ideas[count - 1] || '') || []
-                const nextTopicIndex = count < ideas.length ? count : ideas.length - 1
+                const completedTopics = postsData?.map(p => p.topic || ideasToGenerate[count - 1] || '') || []
+                const nextTopicIndex = count < ideasToGenerate.length ? count : ideasToGenerate.length - 1
 
                 setGenerationProgress(prev => ({
                     ...prev,
                     current: count,
-                    stage: count >= ideas.length ? 'completed' : 'generating',
-                    currentTopic: count < ideas.length ? ideas[nextTopicIndex] : 'Finishing up...',
+                    stage: count >= ideasToGenerate.length ? 'completed' : 'generating',
+                    currentTopic: count < ideasToGenerate.length ? ideasToGenerate[nextTopicIndex] : 'Finishing up...',
                     completedTopics: completedTopics.slice(0, count)
                 }))
                 setPosts(postsData || [])
 
-                if (count >= ideas.length) {
+                if (count >= ideasToGenerate.length) {
                     clearInterval(pollInterval)
                     setGenerationProgress(prev => ({ ...prev, stage: 'completed' }))
                     setTimeout(() => {
@@ -478,7 +483,7 @@ export function CampaignSettings() {
             }, 2000)
 
             const { error } = await supabase.functions.invoke('generate-campaign-posts', {
-                body: { campaign_id: id },
+                body: { campaign_id: id, ideas: ideasToGenerate },
             })
 
             if (error) {
@@ -492,7 +497,7 @@ export function CampaignSettings() {
                 await fetchCampaign()
                 setIsGeneratingPosts(false)
                 setActiveTab('posts')
-            }, ideas.length * 8000) // ~8s per post max
+            }, ideasToGenerate.length * 8000) // ~8s per post max
 
         } catch (error) {
             console.error('Error generating posts:', error)
@@ -1437,7 +1442,7 @@ export function CampaignSettings() {
                                 disabled={ideas.length === 0 || isGeneratingPosts}
                             >
                                 <Play className="w-4 h-4" />
-                                Generate {ideas.length} Posts
+                                Generate {selectedIdeaIndices.size > 0 ? selectedIdeaIndices.size : ideas.length} {(selectedIdeaIndices.size > 0 ? selectedIdeaIndices.size : ideas.length) === 1 ? 'Post' : 'Posts'}
                             </Button>
                         </div>
                     </div>
@@ -1583,7 +1588,7 @@ export function CampaignSettings() {
                                 {ideas.length > 0 && (
                                     <Button variant="pill" onClick={handleGeneratePosts} disabled={isGeneratingPosts}>
                                         <Play className="w-4 h-4" />
-                                        Generate {ideas.length} Posts
+                                        Generate {selectedIdeaIndices.size > 0 ? selectedIdeaIndices.size : ideas.length} {(selectedIdeaIndices.size > 0 ? selectedIdeaIndices.size : ideas.length) === 1 ? 'Post' : 'Posts'}
                                     </Button>
                                 )}
                             </div>

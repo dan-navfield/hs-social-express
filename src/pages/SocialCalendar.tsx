@@ -205,10 +205,27 @@ function CalendarDay({ date, isCurrentMonth, isToday, posts, onPostClick }: {
 
 // ── Unscheduled Sidebar (Droppable) ──────────────────
 
-function UnscheduledSidebar({ posts, layerFilter, onLayerFilterChange, search, onSearchChange, onPostClick }: {
+type ContentTypeFilter = '' | 'has_image' | 'image_only' | 'text_only' | 'has_body'
+
+function matchesContentType(post: CalendarPost, filter: ContentTypeFilter): boolean {
+    if (!filter) return true
+    const hasImage = post.image_status === 'ready' || !!post.generated_image_path || !!post.final_image_path
+    const hasBody = !!post.body
+    switch (filter) {
+        case 'has_image': return hasImage
+        case 'image_only': return hasImage && !hasBody
+        case 'text_only': return !hasImage && hasBody
+        case 'has_body': return hasBody
+        default: return true
+    }
+}
+
+function UnscheduledSidebar({ posts, layerFilter, onLayerFilterChange, contentTypeFilter, onContentTypeFilterChange, search, onSearchChange, onPostClick }: {
     posts: CalendarPost[]
     layerFilter: string
     onLayerFilterChange: (v: string) => void
+    contentTypeFilter: ContentTypeFilter
+    onContentTypeFilterChange: (v: ContentTypeFilter) => void
     search: string
     onSearchChange: (v: string) => void
     onPostClick: (post: CalendarPost) => void
@@ -217,6 +234,7 @@ function UnscheduledSidebar({ posts, layerFilter, onLayerFilterChange, search, o
 
     const filtered = posts.filter(p => {
         if (layerFilter && p.content_layer !== layerFilter) return false
+        if (!matchesContentType(p, contentTypeFilter)) return false
         if (search && !p.title.toLowerCase().includes(search.toLowerCase())) return false
         return true
     })
@@ -247,16 +265,29 @@ function UnscheduledSidebar({ posts, layerFilter, onLayerFilterChange, search, o
                     />
                 </div>
 
-                <select
-                    value={layerFilter}
-                    onChange={e => onLayerFilterChange(e.target.value)}
-                    className="w-full px-2.5 py-1.5 text-xs border border-[var(--color-gray-300)] rounded-lg focus:outline-none focus:border-[var(--color-primary)] bg-white"
-                >
-                    <option value="">All Layers</option>
-                    {CONTENT_LAYERS.map(l => (
-                        <option key={l.value} value={l.value}>{l.label}</option>
-                    ))}
-                </select>
+                <div className="flex gap-2">
+                    <select
+                        value={layerFilter}
+                        onChange={e => onLayerFilterChange(e.target.value)}
+                        className="flex-1 px-2.5 py-1.5 text-xs border border-[var(--color-gray-300)] rounded-lg focus:outline-none focus:border-[var(--color-primary)] bg-white"
+                    >
+                        <option value="">All Layers</option>
+                        {CONTENT_LAYERS.map(l => (
+                            <option key={l.value} value={l.value}>{l.label}</option>
+                        ))}
+                    </select>
+                    <select
+                        value={contentTypeFilter}
+                        onChange={e => onContentTypeFilterChange(e.target.value as ContentTypeFilter)}
+                        className="flex-1 px-2.5 py-1.5 text-xs border border-[var(--color-gray-300)] rounded-lg focus:outline-none focus:border-[var(--color-primary)] bg-white"
+                    >
+                        <option value="">All Types</option>
+                        <option value="has_image">Has Image</option>
+                        <option value="image_only">Image Only</option>
+                        <option value="text_only">Text Only</option>
+                        <option value="has_body">Has Text</option>
+                    </select>
+                </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -289,6 +320,7 @@ export function SocialCalendar() {
     const [isLoading, setIsLoading] = useState(true)
     const [activeId, setActiveId] = useState<string | null>(null)
     const [layerFilter, setLayerFilter] = useState('')
+    const [contentTypeFilter, setContentTypeFilter] = useState<ContentTypeFilter>('')
     const [search, setSearch] = useState('')
     const [selectedPost, setSelectedPost] = useState<CalendarPost | null>(null)
     const [modalTime, setModalTime] = useState('09:00')
@@ -473,6 +505,8 @@ export function SocialCalendar() {
                         posts={unscheduledPosts}
                         layerFilter={layerFilter}
                         onLayerFilterChange={setLayerFilter}
+                        contentTypeFilter={contentTypeFilter}
+                        onContentTypeFilterChange={setContentTypeFilter}
                         search={search}
                         onSearchChange={setSearch}
                         onPostClick={openPostModal}

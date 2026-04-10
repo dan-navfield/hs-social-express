@@ -33,32 +33,36 @@ serve(async (req) => {
 
     // Define style-specific system prompts
     const stylePrompts = {
-      realistic: `You are an expert at creating image prompts for professional social media posts.
-Given the post content, create a detailed image prompt that describes a REALISTIC, believable scene.
-Focus on:
-- Real-world settings and situations
-- Natural lighting and composition
-- Professional business contexts
-- Authentic human interactions if applicable
-- High-quality photography style
+      realistic: `You are an expert at creating image prompts for social media posts.
+Given the post content, create an image prompt following these guidelines:
 
-The image should complement the post message and resonate with a LinkedIn audience.`,
+Create a warm, candid, human-centred image inspired by the post's title and content.
+
+Focus on real moments of collaboration, thinking, problem-solving, or decision-making that reflect early-stage product ideas being shaped and challenged. The scene should feel natural and unposed - people interacting with ideas, whiteboards, sketches, prototypes, or conversations, rather than presenting or "performing".
+
+Tone should be optimistic, curious, and quietly confident. Subtle humour or visual personality is encouraged, but keep it believable and grounded.
+
+Style references: lifestyle photography, documentary-style moments, natural light, authentic environments, shallow depth of field. Avoid corporate stock clichés, staged boardrooms, or overly polished scenes.
+
+The image should feel human-first, intelligent, and credible - like a glimpse into how good ideas actually get built.`,
       
-      editorial: `You are an expert at creating image prompts for professional social media posts.
-Given the post content, create a detailed image prompt that is CONCEPTUAL and metaphor-driven.
-Focus on:
-- Abstract concepts made visual
-- Symbolic representations of ideas
-- Editorial or magazine-style imagery
-- Bold compositions and striking visuals
-- Thought-provoking imagery that sparks curiosity
+      editorial: `You are an expert at creating image prompts for social media posts.
+Given the post content, create an image prompt following these guidelines:
 
-The image should creatively interpret the post's message in an unexpected way.`,
+Create a clever, visually striking editorial-style image inspired by the post's title and content.
+
+The image should communicate the core idea of the post through metaphor or visual analogy rather than literal scenes. Look for playful or unexpected ways to represent concepts like ideas becoming real, user behaviour, discovery, testing, or shaping something abstract into something usable.
+
+Tone should be smart, human, and slightly witty. Avoid generic tech imagery, floating UI screens, glowing brains, stock-photo people, or obvious AI tropes.
+
+Style references: modern editorial illustration, clever magazine covers, light surrealism, strong composition, restrained colour palette, high contrast, visual punch.
+
+The image should feel like something a thoughtful digital consultancy would proudly post - intriguing enough to stop the scroll and reward a second look.`,
     }
 
     // Call Gemini to generate the prompt
     const geminiResponse = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
       {
         method: 'POST',
         headers: {
