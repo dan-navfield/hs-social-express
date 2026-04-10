@@ -482,16 +482,41 @@ export function ImageStudio() {
         if (refinement.trim()) cp = `${cp.trim()}\n\nAdditional refinements: ${refinement.trim()}`
         setGenerating(true)
         try {
-            const { data, error } = await supabase.functions.invoke('image-studio-generate', { body: { prompt: cp.trim(), aspect_ratio: aspectRatio, reference_image_urls: referenceImages.length > 0 ? referenceImages.map(r => r.url) : undefined, space_id: currentSpace.id, model: imageModel } })
+            // Convert reference images to base64 on client side to avoid server-side fetch issues
+            let referenceImageData: { data: string; mimeType: string }[] | undefined
+            if (referenceImages.length > 0) {
+                referenceImageData = []
+                for (const ref of referenceImages) {
+                    try {
+                        const res = await fetch(ref.url)
+                        if (!res.ok) continue
+                        const blob = await res.blob()
+                        const base64 = await new Promise<string>((resolve) => {
+                            const reader = new FileReader()
+                            reader.onloadend = () => {
+                                const result = reader.result as string
+                                resolve(result.split(',')[1]) // Remove data:mime;base64, prefix
+                            }
+                            reader.readAsDataURL(blob)
+                        })
+                        referenceImageData.push({ data: base64, mimeType: blob.type || 'image/png' })
+                    } catch {}
+                }
+            }
+            const { data, error } = await supabase.functions.invoke('image-studio-generate', { body: { prompt: cp.trim(), aspect_ratio: aspectRatio, reference_images: referenceImageData, space_id: currentSpace.id, model: imageModel } })
             if (error) {
-                // Try to read the error response body
                 let errMsg = error.message || 'Generation failed'
-                try {
-                    if (error.context?.json) {
-                        const body = await error.context.json()
-                        errMsg = body?.error || errMsg
-                    }
-                } catch {}
+                // For FunctionsHttpError, the response body is in data (supabase-js v2 parses it)
+                if (data?.error) {
+                    errMsg = data.error
+                } else {
+                    try {
+                        if (error.context instanceof Response) {
+                            const body = await error.context.json()
+                            errMsg = body?.error || errMsg
+                        }
+                    } catch {}
+                }
                 throw new Error(errMsg)
             }
             if (data?.error) throw new Error(data.error)

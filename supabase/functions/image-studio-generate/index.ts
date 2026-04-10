@@ -14,7 +14,7 @@ Deno.serve(async (req) => {
     }
 
     try {
-        const { prompt, aspect_ratio, reference_image_urls, space_id, model: requestModel } = await req.json()
+        const { prompt, aspect_ratio, reference_image_urls, reference_images, space_id, model: requestModel } = await req.json()
 
         if (!prompt?.trim()) {
             return new Response(
@@ -45,9 +45,18 @@ Deno.serve(async (req) => {
             )
         }
 
-        // Fetch reference images and convert to base64 (max 3)
+        // Accept pre-encoded base64 reference images from client, or fall back to URL fetch
         const referenceImages: { data: string; mimeType: string }[] = []
-        if (reference_image_urls?.length) {
+        if (reference_images?.length) {
+            // Client already converted to base64
+            for (const ref of (reference_images as { data: string; mimeType: string }[]).slice(0, 3)) {
+                if (ref.data && ref.mimeType) {
+                    referenceImages.push(ref)
+                }
+            }
+            console.log('[image-studio] Using %d pre-encoded reference images', referenceImages.length)
+        } else if (reference_image_urls?.length) {
+            // Legacy: fetch URLs server-side
             for (const url of (reference_image_urls as string[]).slice(0, 3)) {
                 try {
                     const refRes = await fetch(url)
@@ -57,7 +66,6 @@ Deno.serve(async (req) => {
                     }
                     const refBuffer = await refRes.arrayBuffer()
                     const refMimeType = refRes.headers.get('content-type') || 'image/png'
-                    // Convert to base64 in chunks to avoid stack overflow on large images
                     const bytes = new Uint8Array(refBuffer)
                     let binary = ''
                     const chunkSize = 8192
@@ -66,13 +74,12 @@ Deno.serve(async (req) => {
                     }
                     const base64 = btoa(binary)
                     referenceImages.push({ data: base64, mimeType: refMimeType })
-                    console.log('[image-studio] Reference image loaded:', url.slice(-40), `(${bytes.length} bytes)`)
                 } catch (refErr) {
-                    console.error('[image-studio] Error loading reference image:', url, refErr)
+                    console.error('[image-studio] Error loading reference image:', refErr)
                 }
             }
+            console.log('[image-studio] Fetched %d reference images from URLs', referenceImages.length)
         }
-        console.log('[image-studio] Reference images loaded:', referenceImages.length)
 
         // Load model from ai_settings (or use default)
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!
