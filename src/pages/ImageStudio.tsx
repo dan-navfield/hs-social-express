@@ -441,8 +441,14 @@ export function ImageStudio() {
 
     useEffect(() => {
         if (!currentSpace) return
-        supabase.from('brand_assets').select('*').eq('space_id', currentSpace.id).eq('type', 'logo').then(({ data }) => {
-            if (data?.length) setLogos(data.map(a => { const { data: { publicUrl } } = supabase.storage.from('brand-assets').getPublicUrl(a.file_path); return { url: publicUrl, label: a.label || 'Logo' } }))
+        // Load logos from brand_profile (same source as campaign posts)
+        supabase.from('brand_profile').select('logo_url, logo_top_left_url, logo_bottom_right_url').eq('space_id', currentSpace.id).single().then(({ data }) => {
+            if (!data) return
+            const found: { url: string; label: string }[] = []
+            if (data.logo_url) found.push({ url: data.logo_url, label: 'Main Logo' })
+            if (data.logo_top_left_url) found.push({ url: data.logo_top_left_url, label: 'Top-Left Logo' })
+            if (data.logo_bottom_right_url) found.push({ url: data.logo_bottom_right_url, label: 'Bottom-Right Logo' })
+            if (found.length) setLogos(found)
         })
     }, [currentSpace])
 
